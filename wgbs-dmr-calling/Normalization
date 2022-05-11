@@ -1,0 +1,241 @@
+#!/usr/bin/perl
+#TEST:perl Normalization --head --depth 5 --methy_unmethy 5,6 -i infile.bed -o out
+use strict;
+use warnings;
+use Getopt::Long;
+
+####input options and control####
+my (
+	$help,
+	$infile,			#input, dir or file
+	$outdir,			#output, only empty directory
+	
+	$head,				#the methy files head
+	
+	$m_u,				#methylated reads , methylated reads
+	$r_t,				#methylation level , total reads
+	$m_t,				#methylated reads , total reads
+);
+my $depth_th = 5;		#default is 5
+
+GetOptions(
+	'help|man|h' => \$help,
+
+	'infile=s'   => \$infile,
+	'outdir=s'   => \$outdir,
+	
+	'depth=s'    => \$depth_th,
+	'head!'	     => \$head,
+	
+	'm_u|methy_unmethy=s'	=> \$m_u,
+	'r_t|ratio_total=s' 	=> \$r_t,
+	'm_t|methy_total=s' 	=> \$m_t,
+);
+print_helpfile() if($help);
+required_args($infile,$outdir);
+indir_control($infile);
+outdir_control($outdir);
+
+# column control
+my ($m_col,$t_col,$u_col,$r_col) = (0,0,0,0);	#column attributes 
+if($m_t){
+	($m_col,$t_col) = split(",",$m_t);
+	($m_col,$t_col) = ($m_col-1,$t_col-1);
+}
+elsif($m_u){
+	($m_col,$u_col) = split(",",$m_u);
+	($m_col,$u_col) = ($m_col-1,$u_col-1);
+}
+elsif($r_t){
+	($r_col,$t_col) = split(",",$r_t);
+	($r_col,$t_col) = ($r_col-1,$t_col-1);
+}
+else{
+	die "Require only one option in --methy_unmethy,--ratio_total.\nPlease read the help again!\n";
+}
+
+# end control #
+
+my $wig_head = qq(track type=wiggle_0 name="Methylation Level" visibility=full color=20,150,20 altColor=150,20,20 windowingFunction=mean
+variableStep chrom=);
+
+my ($chr_col,$CpG_col) = (0,1);
+#------statics:
+open STATIC,">","$outdir/statics.txt";
+
+print "Statics(also in $outdir/statics.txt):\n";
+print STATIC "Chr\tTotal_CpGs\tdepth>$depth_th CpGs(%)\tAverage_methy\n";
+print "Chr\tTotal_CpGs\tdepth>$depth_th CpGs(%)\tAverage_methy\n";
+my ($num,$total,$sum) = (0,0);
+
+if(!-d $infile){				#input is a file(not a dir). then split by chromosome.
+	open IN,"<",$infile or die $infile."\nPlease check up this path!\n";
+	
+	<IN> if($head);
+	my $chr = "";
+	
+	while(my $line = <IN>){
+		chomp($line);
+		next if(!$line);
+		$total ++;
+		
+		my @arr = split(/\s+/,$line);
+		my ($curChr,$CpG,$ratio,$depth) = ($arr[$chr_col],$arr[$CpG_col],0,0);
+		
+		if($m_u){
+			$depth = $arr[$m_col] + $arr[$u_col];
+			$ratio = $arr[$m_col]/($arr[$m_col] + $arr[$u_col]);
+		}
+		if($r_t){
+			$depth = $arr[$t_col];
+			$ratio = $arr[$r_col];
+		}
+		
+		if($curChr eq $chr){#current chromosome
+			if($depth > $depth_th){
+				printf OUT "%s\t%.5f\n",$CpG,$ratio;
+				$num ++;
+			}
+		}
+		else{#the other chromosome, so print in another file.
+			printf STATIC "%s\t%d\t%.2f%%\t%.5f\n",$chr,$num,($num/$total)*100,($sum/$num) if($chr);
+			printf "%s\t%d\t%.2f%%\t%.5f\n",$chr,$num,($num/$total)*100,($sum/$num) if($chr);
+			
+			$chr = $curChr;
+			close OUT;
+			open OUT,">",$outdir."/$curChr.wig" or die "$!\nPlease check up the output directory:$outdir \n";
+			($num,$total,$sum) = (0,0);
+			
+			print OUT "$wig_head$curChr\n";
+			if($depth > $depth_th){
+				printf OUT "%s\t%.5f\n",$CpG,$ratio;
+				$num ++;
+				$sum += $ratio;
+			}
+		}
+	}
+	printf STATIC "%s\t%d\t%.2f%%\t%.5f\n",$chr,$num,($num/$total)*100,($sum/$num);
+	printf "%s\t%d\t%.2f%%\t%.5f\n",$chr,$num,($num/$total)*100,($sum/$num);
+}
+else{							#input is a directory.
+	my @files = glob("$infile/*");
+	foreach my $file(@files){
+		open IN,"<",$file or die $file."\nPlease check up this path!\n";
+		<IN> if($head);
+		
+		my $line = <IN>;
+		my $chr = (split(/\s+/,$line))[0];
+		my $outfile = "$outdir/$chr.wig";
+		
+		open OUT,">",$outfile or die $outfile."\nThe path is wrong.Please enter regular input and ouput path!\n";
+		print OUT "$wig_head$chr\n";
+		
+		($num,$total,$sum) = (0,0);
+		while($line){
+			chomp $line;
+			next if(!$line);
+			$total ++;
+			
+			my @arr = split(/\s+/,$line);
+			my ($curChr,$CpG,$ratio,$depth) = ($arr[$chr_col],$arr[$CpG_col],0,0);
+
+			if($m_u){
+				$depth = $arr[$m_col] + $arr[$u_col];
+				$ratio = $arr[$m_col]/($arr[$m_col] + $arr[$u_col]);
+			}
+			if($r_t){
+				$depth = $arr[$t_col];
+				$ratio = $arr[$r_col];
+			}
+			if($depth > $depth_th){
+				printf OUT "%s\t%.5f\n",$CpG,$ratio;
+				$num ++;
+				$sum += $ratio;
+			}
+			$line = <IN>;
+		}
+		printf STATIC "%s\t%d\t%.2f%%\t%.5f\n",$chr,$num,($num/$total)*100,($sum/$num);
+		printf "%s\t%d\t%.2f%%\t%.5f\n",$chr,$num,($num/$total)*100,($sum/$num);
+	}
+}
+close IN;
+close OUT;
+
+sub print_helpfile{
+	print qq(
+---------------------------------- HELP ---------------------------------------
+You can use this tool to convert methylation files into ".wig" format to display in ucsc.
+".wig" format is the normal format which CpG_MPs requires.
+------------------
+USAGE:	Normalization [OPTION] {--m_u <c1,c2>|--r_t <c1,c2>} [-i <file|folder>] [-o <folder>]
+------------------
+ARGUMENTS:
+	-h,--help,--man
+				Display the helpfile.
+ OPTION:
+	--depth		
+				A depth threshold,DEFAULT:5.A site is valid when its depth is more than the threshold.
+	--head		
+				The methy files has a header.
+	
+ ##The command requires only one in these following two options.
+	-m_u,--methy_unmethy
+				The column of methylated counts and unmethylated counts.
+	-r_t,--ratio_total
+				The column of methylation level(from 0 to 1) and total counts(i.e. read depth).
+ I/O:
+	-i,--infile
+				The input methy file.Also can be a folder which has methy files splited by chromosome.REQUIRED
+	-o,--outdir	
+				The output folder.REQUIRED
+------------------
+EXAMPLE:
+ BRIEF:
+	Normalization --methy_unmethy 5,6 -i test.txt -o out_folder
+	  Split "test.cov" into "out_folder/" by chromosomes. methy counts is in col 5,unmethy counts is in col 6.
+	  (the format of test.txt seems like ".cov" files comes from Bismark .)
+  
+ VERBOSE:
+	Normalization --head --depth 8 --ratio_total 4,5 -i methy_chr -o out_folder
+	  Pick up the sites when its depth is more than 8,
+	  and then convert methy files which in folder "methy_chr" into ".wig" files.
+	  Methy level is in col 5, total counts is in col 4.
+	  (the format of files in methy_chr seems like ".bed" files comes from BSMAP .)
+
+ OUTPUT:
+	Wig format will like this (chr1.wig):
+		track type=wiggle_0 name="Methylation Level" visibility=full color=20,150,20 altColor=150,20,20 windowingFunction=mean
+		variableStep chrom=chr1
+		3003660	1
+		3004613	0.87804
+		3004636	0.86956
+-------------------------------------------------------------------------------
+);
+}
+
+sub outdir_control{		#( string folder )
+	my $outdir = $_[0];
+	
+	unless(-e $outdir){	
+		mkdir $outdir or die "Can't create $outdir!\nPlease check up this path.\n";
+	}
+}
+
+sub indir_control{		#( string folder )
+	my $indir = $_[0];
+	
+	unless(-e $indir){		
+		die "$indir doesn't exist!\nPlease check up this path.\n";
+	}
+}
+
+sub required_args{		#( args1,args2,args3 ... )
+	my @arr = @_;
+	
+	foreach my $args(@arr){
+		unless($args){
+			print "Lack required arguments.\n";
+			print_helpfile();
+		}
+	}
+}

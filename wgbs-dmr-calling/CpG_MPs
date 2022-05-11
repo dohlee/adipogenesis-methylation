@@ -1,0 +1,420 @@
+#!/usr/bin/perl --
+use strict;
+use warnings;
+use Getopt::Long;
+use File::Basename;
+##### input options ######
+my $help;
+
+my $methylation_level_U;
+my $methylation_level_M;
+my $hotspot_CpG_number;
+my $abnormal_CpG_number;
+my $ucsc;
+
+my $normalization_data_folder;
+my $methylation_pattern_output_folder;
+
+GetOptions(
+		   'help|man|h' => \$help,
+		   'methylation_level_U:s' => \$methylation_level_U,
+           'methylation_level_M:s' => \$methylation_level_M,
+           'hotspot_CpG_number:s' => \$hotspot_CpG_number,
+           'abnormal_CpG_number:s' => \$abnormal_CpG_number,
+		   'ucsc!' => \$ucsc,
+		   
+		   'i|indir=s'  => \$normalization_data_folder,
+		   'o|outdir=s' => \$methylation_pattern_output_folder
+		   );###得到输入的参数
+
+##### end options #####
+
+#### input arguments ####
+######control#####
+if($help){
+	print_helpfile();
+	die "\n";
+}
+if(!$methylation_pattern_output_folder or !$normalization_data_folder){
+	print "\nYou need to specify input and output by using -i -o!\n";
+	print_helpfile(); 
+	die "\n";
+}
+if(!-e $methylation_pattern_output_folder){	#outdir is a directory and not exists
+	mkdir $methylation_pattern_output_folder or die "Can't mkdir $methylation_pattern_output_folder!\nPlease check up your output folder path\n";
+}
+if(!-e $normalization_data_folder){	#infolder not exists
+	die "$normalization_data_folder don't exist!\nPlease check up your input path\n";
+}
+
+		   
+unless($methylation_level_U){
+$methylation_level_U=0.3;
+}
+unless($methylation_level_M){
+$methylation_level_M=0.7;
+}
+unless($hotspot_CpG_number){
+$hotspot_CpG_number=3;
+}
+unless($abnormal_CpG_number){
+$abnormal_CpG_number=1;
+}
+############
+print "indir\t$normalization_data_folder\n";
+print "outdir\t$methylation_pattern_output_folder\n";
+
+### end arguments ####
+my @files = glob("$normalization_data_folder/*.wig");
+foreach my $file(@files){
+open (IN,"$file") or die "can't open $file $!";
+
+my $chro;
+my @chrPosition;
+my @chrMethy;
+my $chrindex=0;
+<IN>;
+{
+my $line = <IN>;
+chomp $line;
+my @arr = split(/=/,$line);
+$chro = $arr[1];
+}
+while(<IN>){
+my @a=split(/\s+/,$_);
+$chrPosition[$chrindex]=$a[0];
+$chrMethy[$chrindex]=$a[1];
+
+$chrindex++;
+}
+close(IN);
+
+open OUT,">","$methylation_pattern_output_folder/$chro.patterns";
+print OUT "Chrosome\tStart_position\tEnd_position\tMethylation_pattern\tLength\tAverage_methylation_level\tVariance\n";
+
+if($ucsc){
+	open BED,">","$methylation_pattern_output_folder/$chro.bed";
+	print BED qq(track itemRgb="On" name="Methylation Region" description="methylation patterns regions" visibility=3\n);
+}
+
+my $Seednum=0;
+my $pp=0;
+my $endnum=-1;
+my $beginnum=0;
+my @ShortStart;
+my @ShortEnd;
+my @MethyPattern;
+my $Startindex=0;
+while($pp<$chrindex){
+	$Seednum=0;
+	if($chrMethy[$pp]>$methylation_level_U && $chrMethy[$pp]<$methylation_level_M){
+		$pp++;
+		next;
+		}
+	if($chrMethy[$pp]>=$methylation_level_M){
+		$Seednum++;
+		for(my $j=$pp+1;$j<$chrindex;$j++){
+			if($chrMethy[$j]>=$methylation_level_M){
+				$Seednum++;
+				}
+				else{
+					last;
+					}
+			}###end for
+			if($Seednum>=$hotspot_CpG_number){###开始扩展甲基化热点区域的上下游
+				my $nextindex=$pp+$Seednum;
+				my $lastindex=$pp-1;
+				$beginnum=$pp;
+				while($lastindex>$endnum){###上游扩
+					my $MaxNotnum=0;
+					if($chrMethy[$lastindex]>=0.5){
+						$lastindex--;
+						next;
+						}
+						if($chrMethy[$lastindex]<0.5){
+							$MaxNotnum++;
+							for(my $Lowindex=$lastindex-1;$Lowindex>$endnum;$Lowindex--){
+								if($chrMethy[$Lowindex]<=0.5){
+									$MaxNotnum++;
+									}
+									else{
+										last;
+										}
+								}###end for
+								if($MaxNotnum<=$abnormal_CpG_number){
+									my $Identify=$lastindex-$MaxNotnum;
+									if($Identify<=$endnum){
+										$beginnum=$lastindex+1;
+										last;
+										}
+										if($Identify>$endnum && $chrMethy[$Identify]>=0.5){
+											$lastindex=$Identify-1;
+											next;
+											}
+									}###判断缺失值情况
+									else{
+										$beginnum=$lastindex+1;
+										last;
+										}
+							}
+					}###上游扩
+					if($lastindex==$endnum){
+						$beginnum=$endnum+1;
+						}
+						$endnum=$nextindex-1;
+						while($nextindex<$chrindex){###向下扩
+							my $Maxnotnum=0;
+							if($chrMethy[$nextindex]>=0.5){
+								$nextindex++;
+								next;
+								}
+								if($chrMethy[$nextindex]<0.5){
+									$Maxnotnum++;
+									for(my $ww=$nextindex+1;$ww<$chrindex;$ww++){
+										if($chrMethy[$ww]<0.5){
+											$Maxnotnum++;
+											}
+											else{
+												last;
+												}
+										}
+										if($Maxnotnum<=$abnormal_CpG_number){
+											my $Identify=$nextindex+$Maxnotnum;
+											if($Identify>=$chrindex){
+												$endnum=$nextindex-1;
+												$pp=$nextindex;
+												last;
+												}
+												if($Identify<$chrindex && $chrMethy[$Identify]>=0.5){
+													$nextindex=$Identify+1;
+													next;
+													}
+											}
+											else{
+												$endnum=$nextindex-1;
+												$pp=$nextindex;
+												last;
+												}
+									}
+							}###向下扩
+							if($nextindex>=$chrindex){
+								$pp=$nextindex+1;
+								$endnum=$chrindex-1;
+								}
+								$ShortStart[$Startindex]=$chrPosition[$beginnum];
+								$ShortEnd[$Startindex]=$chrPosition[$endnum];
+								$MethyPattern[$Startindex]=1;
+								$Startindex++;
+				}###开始扩展甲基化热点区域的上下游
+				else{
+					$pp=$pp+$Seednum+1;
+					}
+					next;
+		}###M
+		
+			if($chrMethy[$pp]<=$methylation_level_U){
+		$Seednum++;
+		for(my $j=$pp+1;$j<$chrindex;$j++){
+			if($chrMethy[$j]<=$methylation_level_U){
+				$Seednum++;
+				}
+				else{
+					last;
+					}
+			}###end for
+			if($Seednum>=$hotspot_CpG_number){###开始扩展甲基化热点区域的上下游
+				my $nextindex=$pp+$Seednum;
+				my $lastindex=$pp-1;
+				$beginnum=$pp;
+				while($lastindex>$endnum){###上游扩
+					my $MaxNotnum=0;
+					if($chrMethy[$lastindex]<0.5){
+						$lastindex--;
+						next;
+						}
+						if($chrMethy[$lastindex]>=0.5){
+							$MaxNotnum++;
+							for(my $Lowindex=$lastindex-1;$Lowindex>$endnum;$Lowindex--){
+								if($chrMethy[$Lowindex]>=0.5){
+									$MaxNotnum++;
+									}
+									else{
+										last;
+										}
+								}###end for
+								if($MaxNotnum<=$abnormal_CpG_number){
+									my $Identify=$lastindex-$MaxNotnum;
+									if($Identify<=$endnum){
+										$beginnum=$lastindex+1;
+										last;
+										}
+										if($Identify>$endnum && $chrMethy[$Identify]<0.5){
+											$lastindex=$Identify-1;
+											next;
+											}
+									}###判断缺失值情况
+									else{
+										$beginnum=$lastindex+1;
+										last;
+										}
+							}
+					}###上游扩
+					if($lastindex==$endnum){
+						$beginnum=$endnum+1;
+						}
+						$endnum=$nextindex-1;
+						while($nextindex<$chrindex){###向下扩
+							my $Maxnotnum=0;
+							if($chrMethy[$nextindex]<0.5){
+								$nextindex++;
+								next;
+								}
+								if($chrMethy[$nextindex]>=0.5){
+									$Maxnotnum++;
+									for(my $ww=$nextindex+1;$ww<$chrindex;$ww++){
+										if($chrMethy[$ww]>=0.5){
+											$Maxnotnum++;
+											}
+											else{
+												last;
+												}
+										}
+										if($Maxnotnum<=$abnormal_CpG_number){
+											my $Identify=$nextindex+$Maxnotnum;
+											if($Identify>=$chrindex){
+												$endnum=$nextindex-1;
+												$pp=$nextindex;
+												last;
+												}
+												if($Identify<$chrindex && $chrMethy[$Identify]<0.5){
+													$nextindex=$Identify+1;
+													next;
+													}
+											}
+											else{
+												$endnum=$nextindex-1;
+												$pp=$nextindex;
+												last;
+												}
+									}
+							}###向下扩
+							if($nextindex>=$chrindex){
+								$pp=$nextindex+1;
+								$endnum=$chrindex-1;
+								}
+								$ShortStart[$Startindex]=$chrPosition[$beginnum];
+								$ShortEnd[$Startindex]=$chrPosition[$endnum];
+								$MethyPattern[$Startindex]=-1;
+								$Startindex++;
+				}###开始扩展甲基化热点区域的上下游
+				else{
+					$pp=$pp+$Seednum+1;
+					}
+					next;
+		}###U
+		
+	}###end pp循环识别甲基化模式
+my $lastbiaoji=0;
+my $Mergeindex=0;
+while($Mergeindex<$Startindex){
+	my $begin=$ShortStart[$Mergeindex];
+	my $brigenum=$ShortEnd[$Mergeindex];
+	my $mergesum=0;
+	my $Pattern=$MethyPattern[$Mergeindex];
+	my $end=$ShortEnd[$Mergeindex];
+	for(my $j=$Mergeindex+1;$j<$Startindex;$j++){
+		if(($ShortStart[$j]-$brigenum)<200 && $MethyPattern[$j]==$Pattern){
+			$mergesum++;
+			$end=$ShortEnd[$j];
+			$brigenum=$ShortEnd[$j];
+			}
+			else{
+				last;
+				}
+		}###end for
+		my @ArrayMethy;
+		my $stanum=0;
+		my $RegionMethy=0;
+		my $Standvalue=0;
+		my $lastavmethy=0;
+
+		for(my $kk=$lastbiaoji;$kk<$chrindex;$kk++){
+			if($chrPosition[$kk]>=$begin && $chrPosition[$kk]<=$end){
+			
+				$ArrayMethy[$stanum]=$kk;
+				$RegionMethy=$RegionMethy+$chrMethy[$kk];
+				$stanum++;
+				}
+				if($chrPosition[$kk]>$end){
+					$lastbiaoji=$kk;
+					last;
+					}
+			}###end for
+			$lastavmethy=$RegionMethy/$stanum;
+			$lastavmethy= sprintf "%0.3f",$lastavmethy;
+			for(my $qf=0;$qf<$stanum;$qf++){
+				$Standvalue=$Standvalue+($lastavmethy-$chrMethy[$ArrayMethy[$qf]])*($lastavmethy-$chrMethy[$ArrayMethy[$qf]]);
+				}
+				$Standvalue=$Standvalue/$stanum;
+				$Standvalue=sqrt($Standvalue);
+				$Standvalue=sprintf "%0.3f",$Standvalue;
+				my $regionlen=$end-$begin+1;
+				print OUT "$chro\t$begin\t$end\t$Pattern\t$regionlen\t$lastavmethy\t$Standvalue\n";
+				if($ucsc){
+					print BED "$chro\t$begin\t$end\t$Pattern";
+					print BED "MR" if($Pattern eq "1");
+					print BED "UMR" if($Pattern eq "-1");
+					
+					print BED "\t0\t+\t$begin\t$end\t";
+					print BED "58,181,74\n" if($Pattern eq "1");
+					print BED "238,29,35\n" if($Pattern eq "-1");
+				}
+			$Mergeindex=$Mergeindex+$mergesum+1;
+	}###end while
+}###end while
+
+sub print_helpfile{
+	print qq(
+---------------------------------- HELP ---------------------------------------
+You can use this tool to get methylation patterns from the methylation files after data  normalization.
+------------------
+USAGE:	CpG_MPs [options] [-i <folder>] [-o <folder>]
+------------------
+ARGUMENTS:
+	-h,--help,--man
+				Display the helpfile.
+ OPTION:
+	--methylation_level_U 
+				The threshold of methylation level for unmethylated hotspot region. The default methylation_level_U is set as 0.3.
+	--methylation_level_M 
+				The threshold of methylation level for  methylated hotspot region. The default methylation_level_M is set as 0.7.
+	--hotspot_CpG_number 
+				The successive CpG number (with methylation level ≤methylation_level_U or ≥methylation_level_M) thresholdis used to find hotspot region (including unmethylated and methylated hotspot region).
+				The default hotspot_CpG_number is set as 3.
+	--abnormal_CpG_number
+				The CpG number with methylation level more than 0.5 is allowed to be ≤abnormal_CpG_number when extending the unmethylated hotspot region. 
+				The CpG number with methylation level less than 0.5 is allowed to be ≤abnormal_CpG_number when extending the methylated hotspot region. The default is set as 1.
+				
+	--ucsc
+				export extra ".bed" files in outdir to display on UCSC.   
+ I/O:
+	-i,--indir
+				The input methy folder (comes from CpG_MPs_normalization).REQUIRED
+	-o,--outdir	
+				The output folder.REQUIRED
+------------------
+EXAMPLE:
+	CpG_MPs --ucsc -i NP_methy -o NP_pattern
+	  Get methylation patterns from NP_methy folder.The result is in NP_pattern.
+	  Export extra ".bed" files.
+
+ OUTPUT:
+	output will like this (chr13.patterns):
+		Chrosome        Start_position  End_position    Methylation_pattern     Length  Average_methylation_level       Variance
+		chr13   3000397 3127036 1       126640  0.897   0.120
+		chr13   3127725 3357222 1       229498  0.913   0.107
+		chr13   3357289 3360770 -1      3482    0.047   0.078
+		chr13   3361137 3405393 1       44257   0.902   0.114
+-------------------------------------------------------------------------------
+);
+}

@@ -1,0 +1,204 @@
+import pandas as pd
+from collections import defaultdict
+
+configfile: 'config.yaml'
+
+ASCP_BIN = config['ascp_bin']
+ASCP_KEY = config['ascp_key']
+
+RUNS = [f'SRR52976{i}' for i in range(30, 54)]
+print(len(RUNS))
+
+manifest = pd.read_csv('manifest.csv')
+exps = manifest.experiment.unique()
+exp2runs = defaultdict(list)
+for r in manifest.to_records():
+    exp2runs[r.experiment].append(r.run)
+
+rule all:
+    input:
+        # expand('data/{run}.read1.fastq.gz', run=RUNS),
+        # expand('data/{run}.read2.fastq.gz', run=RUNS),
+        # expand('result/{run}.read1_2.pair.sorted.bam.bai', run=RUNS),
+        # expand('result/{run}.read1_2.pair.sorted.subset.bam', run=RUNS),
+        # expand('result/{run}.read1_2.pair.sorted_by_name.dedup.bam', run=RUNS),
+        # expand('{run}/{run}.chinput', run=RUNS),
+        expand('chicago_result_score3/{exp}/{exp}.filtered.bedpe', exp=exps),
+
+rule run_chicago:
+    input:
+        lambda wc: expand('chicago_input/{run}/{run}.chinput', run=exp2runs[wc.exp])
+    output:
+        'chicago_result_score3/{exp}/{exp}.ibed'
+    params:
+        output_dir = lambda wc: f'chicago_result_score3/{wc.exp}',
+        score_cutoff = 3,
+        design_dir = 'chicago_design_dir',
+    shell:
+        'Rscript run_chicago.R '
+        '--input {input} '
+        '--score-cutoff {params.score_cutoff} '
+        '--design-dir {params.design_dir} '
+        '--output-prefix {wildcards.exp} '
+        '--outdir {params.output_dir}'
+
+rule filter_ibed:  # Filter interactions in ibed files with more than 1 reads.
+    input:
+        'chicago_result_score3/{exp}/{exp}.ibed'
+    output:
+        'chicago_result_score3/{exp}/{exp}.filtered.ibed'
+    shell:
+        'cat {input} | '
+        'awk \'BEGIN {{FS=OFS="\\t"}} {{ if(NR==1) {{ print $0 }} else if($10>0) {{ print $0 }} }}\' > {output}'
+
+rule ibed2bedpe:
+    # bedpe format
+    # chr1, start1, end1, chr2, start2, end2, name, score, strand1, strand2
+    input:
+        'chicago_result_score3/{exp}/{exp}.filtered.ibed'
+    output:
+        'chicago_result_score3/{exp}/{exp}.filtered.bedpe'
+    shell:
+        'cat {input} | '
+        'awk \'BEGIN {{FS=OFS="\\t"}} {{ if(NR!=1) {{ print $1,$2,$3,$5,$6,$7,$4"@"$8,$9 }} }}\' > '
+        '{output}'
+
+rule hicup_digester:
+    input:
+        '/data/project/dohoon/reference/hg38/hg38.fa'
+    output:
+        'Digest_Human_hg38_HindIII_None_20-56-10_21-06-2021.txt'
+    shell:
+        'hicup_digester --genome Human_hg38 --re1 A^AGCTT,HindIII {input}'
+
+rule sambamba_sort:
+    input:
+        'result/{run}.read1_2.pair.bam'
+    output:
+        'result/{run}.read1_2.pair.sorted.bam'
+    params:
+        tmpdir = '.'
+    threads: 8
+    wrapper:
+        'http://dohlee-bio.info:9193/sambamba/sort'
+
+rule sambamba_index:
+    input:
+        'result/{run}.read1_2.pair.sorted.bam'
+    output:
+        'result/{run}.read1_2.pair.sorted.bam.bai'
+    threads: 4
+    wrapper:
+        'http://dohlee-bio.info:9193/sambamba/index'
+
+
+rule sambamba_view:
+    input:
+        'result/{run}.read1_2.pair.sorted.bam'
+    output:
+        'result/{run}.read1_2.pair.sorted.subset.bam'
+    resources: io = 1
+    shell:
+        'sambamba view {input} '
+        'chr1 chr2 chr3 chr4 chr5 chr6 chr7 chr8 chr9 chr10 '
+        'chr11 chr12 chr13 chr14 chr15 chr16 chr17 chr18 chr19 '
+        'chrX chrY --format bam > {output}'
+
+rule sambamba_sort_by_name:
+    input:
+        'result/{run}.read1_2.pair.sorted.subset.bam' 
+    output:
+        'result/{run}.read1_2.pair.sorted_by_name.bam'
+    params:
+        tmpdir = '.',
+        sort_by_name = True,
+    threads: 8
+    resources: io = 1
+    wrapper:
+        'http://dohlee-bio.info:9193/sambamba/sort'
+
+rule prefetch_accession:
+    output:
+        temp('{sample}.sra')
+    resources:
+        network = 1
+    shell:
+        f'prefetch --ascp-path "{ASCP_BIN}|{ASCP_KEY}" -v {{wildcards.sample}} --max-size 1000000000 && mv {{wildcards.sample}}/{{wildcards.sample}}.sra . && rm -r {{wildcards.sample}}'
+
+rule parallel_fastq_dump_single:
+    input:
+        '{sample}.sra'
+    output:
+        'data/{sample}.read1.fastq.gz',
+        'data/{sample}.read2.fastq.gz',
+    params:
+        extra = '--tmpdir .'
+    threads: 6
+    wrapper:
+        'http://dohlee-bio.info:9193/parallel-fastq-dump'
+
+rule hicup_filter:
+    input:
+        'result/{run}.read1_2.pair.sorted_by_name.bam'
+    output:
+        'result/{run}.read1_2.pair.sorted_by_name.filt.bam'
+    params:
+        digest = 'Digest_Mouse_mm10_HindIII_None_21-04-23_21-06-2021.txt',
+        longest = 700,
+        shortest = 50,
+        outdir = 'result',
+    threads: 2
+    shell:
+        'hicup_filter --digest {params.digest} '
+        '--longest {params.longest} '
+        '--shortest {params.shortest} '
+        '--outdir {params.outdir} '
+        '--threads {threads} '
+        '--zip '
+        '{input}'
+
+rule hicup_deduplicator:
+    input:
+        'result/{run}.read1_2.pair.sorted_by_name.filt.bam'
+    output:
+        'result/{run}.read1_2.pair.sorted_by_name.dedup.bam'
+    threads: 2
+    params:
+        outdir = 'result',
+    shell:
+        'hicup_deduplicator '
+        '--outdir {params.outdir} '
+        '--threads {threads} '
+        '--zip '
+        '{input}'
+
+rule sambamba_sort_by_name2:
+    input:
+        'result/{run}.read1_2.pair.sorted_by_name.dedup.bam'
+    output:
+        'result/{run}.read1_2.pair.sorted_by_name.dedup.sorted_by_name.bam'
+    params:
+        tmpdir = '.',
+        sort_by_name = True,
+    threads: 8
+    resources: io = 1
+    wrapper:
+        'http://dohlee-bio.info:9193/sambamba/sort'
+
+rule bam2chicago:
+    input:
+        'result/{run}.read1_2.pair.sorted_by_name.filt.bam'
+    output:
+        'chicago_input/{run}/{run}.chinput'
+    threads: 2
+    params:
+        baitmap = 'chicago_design_dir/mm10_HindIII.baitmap',
+        rmap = 'chicago_design_dir/mm10_HindIII.rmap',
+    benchmark: 'benchmarks/bam2chicago/{run}.benchmark'
+    shell:
+        'scripts/bam2chicago_V02.sh '
+        '-b {input} '
+        '-t {params.baitmap} '
+        '-r {params.rmap} '
+        '-o chicago_input/{wildcards.run} 2> /dev/null'
+

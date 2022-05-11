@@ -1,0 +1,44 @@
+configfile: 'config.yaml'
+
+from os.path import join
+SAMPLES = ['G_DNA-3T3L1-AD', 'G_DNA-3T3L1-pre']
+
+rule all:
+    input:
+        'result/DMR/called/'
+
+rule drop_header:
+    input:
+        join(config['mapping_result_dir']['sample'], '{sample}.bismark.deduplicated.sorted_CpG.bedGraph'),
+    output:
+        join(config['mapping_result_dir']['sample'], '{sample}.bismark.deduplicated.sorted_CpG.processed.bedGraph'),
+    shell:
+        'cat {input} | tail -n +2 > {output}'
+
+rule normalization:
+    input:
+        join(config['mapping_result_dir']['sample'], '{sample}.bismark.deduplicated.sorted_CpG.processed.bedGraph'),
+    output:
+        directory(join(config['result_dir']['sample'], 'normalized')),
+    shell:
+        'Normalization -i {input} -o {output} --m_u 5,6'
+    
+rule cpg_mps:
+    input:
+        directory(join(config['result_dir']['sample'], 'normalized')),
+    output:
+        directory(join(config['result_dir']['sample'], 'called')),
+    shell:
+        'CpG_MPs -i {input} -o {output} --methylation_level_U 0.4 --methylation_level_M 0.6'
+
+rule cpg_mps_dif_con:
+    input:
+        ad_pattern=directory(join(config['result_dir']['sample'], 'called').format(sample=SAMPLES[0])),
+        pre_pattern=directory(join(config['result_dir']['sample'], 'called').format(sample=SAMPLES[1])),
+        ad_meth=directory(join(config['result_dir']['sample'], 'normalized').format(sample=SAMPLES[0])),
+        pre_meth=directory(join(config['result_dir']['sample'], 'normalized').format(sample=SAMPLES[1])),
+    output:
+        directory('result/DMR/called/')
+    shell:
+        'CpG_MPs_Dif_Con --pattern {input.ad_pattern},{input.pre_pattern} --methy {input.ad_meth},{input.pre_meth} -o {output} --ucsc --CpG_number 3'
+

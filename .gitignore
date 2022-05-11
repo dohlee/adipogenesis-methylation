@@ -1,0 +1,6 @@
+**/.snakemake
+**/.ipynb_checkpoints
+
+wgbs-data-processing/data
+wgbs-data-processing/result
+wgbs-data-processing/logs

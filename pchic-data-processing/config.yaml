@@ -1,0 +1,8 @@
+
+#
+# NOTE: You may have to adjust the below two entries according to your system setting for ASCP.
+#
+ascp_bin: '~/.aspera/connect/bin/ascp'
+ascp_key: '~/.aspera/connect/etc/asperaweb_id_dsa.openssh'
+
+

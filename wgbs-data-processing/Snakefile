@@ -1,0 +1,18 @@
+configfile: 'config.yaml'
+
+include: 'rules/trim_galore.smk'
+include: 'rules/bismark.smk'
+include: 'rules/sambamba.smk'
+include: 'rules/methyldackel.smk'
+
+from os.path import join
+
+SAMPLES = ['G_DNA-3T3L1-AD', 'G_DNA-3T3L1-pre']
+
+rule all:
+    input: 
+        expand(join(config['result_dir']['sample'], '{sample}.bismark.deduplicated.sorted_CpG.meth.bedGraph'), sample=SAMPLES),
+        expand(join(config['result_dir']['sample'], '{sample}.bismark.deduplicated.sorted_CpG.counts.bedGraph'), sample=SAMPLES),
+        expand(join(config['result_dir']['sample'], '{sample}.bismark.deduplicated.sorted_CpG.bedGraph'), sample=SAMPLES),
+        expand(join(config['result_dir']['sample'], '{sample}.bismark.deduplicated.sorted.mbias.tsv'), sample=SAMPLES),
+        #expand(join(config['result_dir']['sample'], '{sample}.bismark.deduplicated.bam'), sample=SAMPLES)

@@ -1,0 +1,7 @@
+result_dir:
+    # Per-sample result directory.
+    sample: 'result/DMR/{sample}'
+
+mapping_result_dir:
+    # Per-sample result directory.
+    sample: '../wgbs-data-processing/result/'

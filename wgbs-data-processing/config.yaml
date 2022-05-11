@@ -1,0 +1,32 @@
+#
+# NOTE: You must modify the settings for mm10 reference according to your system setting.
+#
+reference:
+    dir: '/data/project/dohoon/reference/mm10'
+    bismark_dir: '/data/project/dohoon/reference/mm10'
+    fasta: '/data/project/dohoon/reference/mm10/mm10.fa'
+
+# wildcard_constraints:
+#   sample: 'SRR[0-9]+'
+
+result_dir:
+    # Per-saple result directory.
+    sample: 'result/{sample}'
+
+raw_data_dir: 'data'
+
+# Number of threads to be used.
+threads:
+    bismark: 36
+    sambamba:
+        sort: 12
+        index: 12
+    methyldackel:
+        mbias: 6
+        extract: 6
+    # Multithreading not supported for the tools below.
+    trim_galore: 1
+
+# Optional manifest file which might help snakemake determine library type of
+# each samples.
+manifest: ''

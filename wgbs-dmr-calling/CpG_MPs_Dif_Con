@@ -1,0 +1,1100 @@
+#!/usr/bin/perl --
+use strict;
+use warnings;
+use Getopt::Long;
+##### input options ######
+my $help;
+
+my $V_value;
+my $CpG_number;
+my $Sample_number;
+my $Reference_genome_folder;
+my $Normalization_data_folder_arr;
+my $Methylation_Pattern_folder_arr;
+
+my $Dif_Con_output_folder;
+
+my $ucsc;
+GetOptions(
+		   'help|man|h' => \$help,
+		   
+		   'V_value:s' => \$V_value,
+           'CpG_number:s' => \$CpG_number,
+		   
+		   'ref=s' => \$Reference_genome_folder,
+		   'pattern=s' => \$Methylation_Pattern_folder_arr,
+		   'methy=s' => \$Normalization_data_folder_arr,
+		   
+		   'o|outdir=s' => \$Dif_Con_output_folder,
+		   
+		   'ucsc!' => \$ucsc
+);
+#############
+if($help){
+	print_helpfile();
+	die "\n";
+}
+if(!$Dif_Con_output_folder){
+	print "\nYou need to specify output by using -o!\n";
+	print_helpfile();
+	die "\n";
+}
+if(!$Methylation_Pattern_folder_arr or !$Normalization_data_folder_arr){
+	print "\nYou need to specify input folder by using --pattern and --methy!\n";
+	print_helpfile();
+	die "\n";
+}
+if(!-d $Dif_Con_output_folder and !-e $Dif_Con_output_folder){	#outdir is a directory and not exists
+	mkdir $Dif_Con_output_folder or die "Can't create $Dif_Con_output_folder!\nPlease check up your output folder path\n";
+}
+
+unless($V_value){
+$V_value=0.5;
+}
+unless($CpG_number){
+$CpG_number=4;
+}
+
+my @Methylation_Pattern_folder;
+my @Normalization_data_folder;
+if($Methylation_Pattern_folder_arr){
+	@Methylation_Pattern_folder = split(/,/,$Methylation_Pattern_folder_arr);
+	$Sample_number = @Methylation_Pattern_folder;
+}
+if($Normalization_data_folder_arr){
+	@Normalization_data_folder = split(/,/,$Normalization_data_folder_arr);
+}
+if($Sample_number >2 and !-d $Reference_genome_folder and !-e $Reference_genome_folder){
+	die "Require genome folder!\nPlease check up your genome path\n";
+}
+
+mkdir "$Dif_Con_output_folder/CMR";
+mkdir "$Dif_Con_output_folder/DMR";
+###global variance ###
+
+my @Con;
+my $Chr;
+my $e=0.0001;
+
+###global variance ###
+
+###子例程向前引用
+sub TwoSamples;
+sub MultipleSamples;
+sub valueMax;
+sub EntropyCalculateEachrow;
+sub Tukey_biweight;
+sub getMedian;
+sub BubbleSort;
+sub getMax;
+sub getMin;
+sub returnThroshod;
+sub CGlocation;
+######运行程序
+
+if($Sample_number==2){
+	my @MethylPath1=glob("$Methylation_Pattern_folder[0]/*.patterns");
+	my $filechr=@MethylPath1;
+	
+	for(my $evfile=0;$evfile<$filechr;$evfile++){####循环每条染色体		
+		my $file1 = $MethylPath1[$evfile];
+		my $cur_chr = substr($file1,(rindex($file1,"/")+1),(rindex($file1,".")-rindex($file1,"/")-1));
+		print "Now run $cur_chr ...\n";
+		
+		my @Parray=&TwoSamples("$Methylation_Pattern_folder[0]/$cur_chr.patterns",
+						"$Methylation_Pattern_folder[1]/$cur_chr.patterns");	  ####调用函数求两样本的差异甲基化区域	
+		my $kandif=@Parray;
+							
+		open(OUTCon,">$Dif_Con_output_folder/CMR/$cur_chr.cmr") or die "can't open conserved data output Path $!\n";##########String ConOutPath$Dif_Con_output_folder/Conserved_methylation";"$Dif_Con_output_folder/Differentially_methylation";
+		print OUTCon "Chromosome\tStart_position\tEnd_position\tLength\tAverage_methylation_level\tV_value\tEntropy\n";	     
+		
+		if($ucsc){
+			open CMR,">","$Dif_Con_output_folder/CMR/$cur_chr.bed";
+			print CMR qq(track itemRgb="On" name="Methylation Region" description="methylation patterns regions" visibility=3\n);
+		}
+		my @MethyInfor;
+		my @Position;
+		my @MethyIndex;
+		my @biaoji;
+		my @biaojiConi;
+			  
+			  
+				for(my $i=0;$i<$Sample_number;$i++){
+					$biaoji[$i]=0;
+					$biaojiConi[$i]=0;
+					open(IN,"$Normalization_data_folder[$i]/$cur_chr.wig")or die "can't open normalization data Path $Normalization_data_folder[$i]/$cur_chr.wig $!\n";##########String[] Adress
+					<IN>;
+					<IN>;
+					$MethyIndex[$i]=0;
+					while(<IN>)
+				    {
+						my @ss=split(/\s+/,$_);
+				        my $Posite=$ss[0];
+				        my $Methy=$ss[1];				        	
+				        $MethyInfor[$MethyIndex[$i]][$i]=$Methy;
+				        $Position[$MethyIndex[$i]][$i]=$Posite;
+				        $MethyIndex[$i]++;
+				    }
+					close(IN);
+				}
+				my $consize=@Con;
+			###	print "the length of conserved data $consize \n";
+				for(my $Coni=0;$Coni<$consize;$Coni++){
+					
+					my @ff=split(/\s+/,$Con[$Coni]);
+					my $Conbegin=$ff[1];
+					my $Conend=$ff[2];
+					my $SS="";	
+					my $SumI=0;
+					my $Ifdo=0;
+					my @Compavmethy;
+					 for(my $Sample=0;$Sample<$Sample_number;$Sample++){
+			       	 	 my $Innum=0;
+			       	   my $Summethy=0;			       	
+			       	 
+			 			for(my $q1=$biaojiConi[$Sample];$q1<$MethyIndex[$Sample];$q1++){
+			 				
+			 				if($Position[$q1][$Sample]>=$Conbegin && $Position[$q1][$Sample]<=$Conend){
+			 					
+			 				 	$Innum++;
+			 				 	$Summethy=$Summethy+$MethyInfor[$q1][$Sample];
+			 				 	next;
+			 				}
+			 				if($Position[$q1][$Sample]>$Conend){
+			 					$biaojiConi[$Sample]=$q1;
+			 					last;
+			 				}			 							 			
+			 			} 
+			 			if($Innum>=$CpG_number){
+		 					my $Av=$Summethy/$Innum;
+			 				my $Avresult=sprintf "%0.3f",$Av;
+			 				$Compavmethy[$Sample]=$Avresult;
+			 				 if($Avresult>0.5){			 					
+				 					$SumI=$SumI+1;
+				 				 }
+				 				 else{				 				
+				 					$SumI=$SumI-1;
+				 				 }				 				
+			 				 $SS="$SS$Avresult"."_";
+		 				}
+			 			else{
+			 				$Ifdo=1;
+			 				last;
+			 			}
+				}
+					 $SumI=abs($SumI);
+					 if($Ifdo==0 && $SumI==$Sample_number){
+						 my $Entropy=&EntropyCalculateEachrow(@Compavmethy);
+						 $Entropy=sprintf "%0.3f",$Entropy;
+						 my $Compavmethylen=@Compavmethy;
+						
+						 if($Entropy>1.659){
+							 my @m1=split(/_/,$SS);						 
+							 my $q1="$m1[0]_$m1[1]";							 
+							print OUTCon "$ff[0]\t$ff[1]\t$ff[2]\t$ff[3]\t$q1\t1\t$Entropy\n";
+							if($ucsc){
+								print CMR "$ff[0]\t$ff[1]\t$ff[2]\tCMR\t0\t+\t$ff[1]\t$ff[2]\t58,181,74\n";
+							}
+						 }				 
+					 }
+				}####Coni
+				close(OUTCon);
+				open(OUTDif,">$Dif_Con_output_folder/DMR/$cur_chr.dmr")or die "can't open Dif path $!\n";######################	 
+				print OUTDif "Chromosome\tStart_position\tEnd_position\tLength\tAverage_methylation_level\tV_value\tEntropy\n";				   
+				if($ucsc){
+					open DMR,">","$Dif_Con_output_folder/DMR/$cur_chr.bed";
+					print DMR qq(track itemRgb="On" name="Methylation Region" description="methylation patterns regions" visibility=3\n);
+				}
+				for(my $Region=0;$Region<$kandif;$Region++){
+					my $SS ="";			
+					my @qq1=split(/\s+/,$Parray[$Region]);
+		      my $Begin=$qq1[1];
+		      my $End=$qq1[2]; 
+		      my $Size=$End-$Begin+1;
+		      my $IfdoP=0;
+		      my @ComDifavmethy;
+		       	 for(my $Sample=0;$Sample<$Sample_number;$Sample++){
+		       	 	 my $Innum=0;
+		       	   my $Summethy=0;
+		       	 	 my $Avmethy=0;
+		 			for(my $q1=$biaoji[$Sample];$q1<$MethyIndex[$Sample];$q1++){
+		 				
+		 				if($Position[$q1][$Sample]>=$Begin && $Position[$q1][$Sample]<=$End){		 					
+		 				 	$Innum++;
+		 				 	$Summethy=$Summethy+$MethyInfor[$q1][$Sample];
+		 				 		next;
+		 				}
+		 				if($Position[$q1][$Sample]>$End){
+		 					$biaoji[$Sample]=$q1;
+		 					last;
+		 				}
+		 			} 
+		 			if($Innum<$CpG_number){
+		 				$IfdoP=1;
+		 				last;
+		 			}
+		 			else{
+		 				$Avmethy=$Summethy/$Innum;		 				 
+		 				my $Avresult=sprintf "%0.3f",$Avmethy;
+		 				$ComDifavmethy[$Sample]=$Avresult;		 				
+		 				$SS="$SS$Avresult"."_";
+		 			}
+		       	 }
+				if($IfdoP==0){
+					 my $Entropy=&EntropyCalculateEachrow(@ComDifavmethy);
+					  $Entropy=sprintf "%0.3f",$Entropy;
+					 if($Entropy<1.659){	
+						my @m1=split(/_/,$SS);						 
+						my $q1= join("_",@m1);						
+						print OUTDif "$qq1[0]\t$qq1[1]\t$qq1[2]\t$Size\t$q1\t1\t$Entropy\n";
+						if($ucsc){
+							print DMR "$qq1[0]\t$qq1[1]\t$qq1[2]\tDMR\t0\t+\t$qq1[1]\t$qq1[2]\t238,29,35\n";
+						}
+					 }					
+			}
+					
+				}
+			close(OUTDif);				
+					
+					
+					}####循环每条染色体	
+				}####$Sample_number==2
+				
+				
+			if($Sample_number>2){#@2
+				my @MethylPath1=glob("$Methylation_Pattern_folder[0]/*.patterns");
+				my $filechr=@MethylPath1;
+								
+				########################################				
+			##	print "the number of chr $filechr\n";
+				for(my $evfile=0;$evfile<$filechr;$evfile++){####循环每条染色体	
+					my $file1 = $MethylPath1[$evfile];
+					$Chr = substr($file1,(rindex($file1,"/")+1),(rindex($file1,".")-rindex($file1,"/")-1));
+					print "Now run $Chr ...\n";
+					
+					my @Sample2path = ();
+					my @Normal_path = ();
+					
+					foreach my $f(@Methylation_Pattern_folder){
+						push (@Sample2path,"$f/$Chr.patterns");
+					}
+					foreach my $f(@Normalization_data_folder){
+						push (@Normal_path,"$f/$Chr.wig");
+					}
+					
+					my @Parray=&MultipleSamples(@Sample2path);###############得到差异甲基化区域和保守区域
+				
+				open(OUTCon,">$Dif_Con_output_folder/CMR/$Chr.cmr") or die "can't open dataPath $!\n";##########String ConOutPath
+				print OUTCon "Chromosome\tStart_position\tEnd_position\tLength\tAverage_methylation_level\tV_value\tEntropy\n";
+				if($ucsc){
+					open CMR,">","$Dif_Con_output_folder/CMR/$Chr.bed";
+					print CMR qq(track itemRgb="On" name="Methylation Region" description="methylation patterns regions" visibility=3\n);
+				}			
+			
+			my $EntropyThroshold=&returnThroshod($Sample_number);
+			##print "the throshold is $EntropyThroshold\n";
+			my @MethyInfor;
+			my @Position;
+			my @MethyIndex;
+			my @biaoji;
+			my @biaojiConi;
+			for(my $i=0;$i<$Sample_number;$i++){
+					$biaoji[$i]=0;
+					$biaojiConi[$i]=0;
+				##	print "$Normal_path[$i]\n";
+					open(IN,"$Normal_path[$i]")or die "can't open normalization dataPath $!\n";##########String[] Adress
+					<IN>;
+					<IN>;
+					$MethyIndex[$i]=0;
+					 while(<IN>)
+				     {
+						  my @ss=split(/\s+/,$_);
+				        	 my $Posite=$ss[0];
+				        	 my $Methy=$ss[1];				        	
+				        	 $MethyInfor[$MethyIndex[$i]][$i]=$Methy;
+				        	 $Position[$MethyIndex[$i]][$i]=$Posite;
+				        	$MethyIndex[$i]++;
+				     }
+					  close(IN);
+				}
+				my $consize=@Con;
+				
+			for(my $Coni=0;$Coni<$consize;$Coni++){
+				my @ff=split(/\s+/,$Con[$Coni]);
+					my $Conbegin=$ff[0];
+					my $Conend=$ff[1];	
+				  my $Len=$Conend-$Conbegin+1;
+				  my $SSav="";
+				  my $SumI=0;
+				  my $Ifdo=0;
+				  my @Compavmethy;
+				 for(my $Sample=0;$Sample<$Sample_number;$Sample++){
+		       	 	my $Innum=0;
+		       	  my $Summethy=0;			       	
+		       	 
+		 			for(my $q1=$biaojiConi[$Sample];$q1<$MethyIndex[$Sample];$q1++){
+		 				
+		 				if($Position[$q1][$Sample]>=$Conbegin&&$Position[$q1][$Sample]<=$Conend){
+		 					
+		 				 	$Innum++;
+		 				 	$Summethy=$Summethy+$MethyInfor[$q1][$Sample];
+		 				 	next;
+		 				}
+		 				if($Position[$q1][$Sample]>$Conend){
+		 					$biaojiConi[$Sample]=$q1;
+		 					last;
+		 				}			 							 			
+		 			} 
+		 			if($Innum>=$CpG_number){
+	 					my $Av=$Summethy/$Innum;
+		 			  my $Avresult=sprintf "%0.3f",$Av;
+		 				 $SSav=$SSav.$Avresult."_";
+		 				$Compavmethy[$Sample]=$Avresult;
+		 				 if($Avresult>0.5){
+		 					
+		 					$SumI=$SumI+1;
+		 				 }
+		 				 else{
+		 					
+		 					$SumI=$SumI-1;
+		 				 }
+	 				}
+		 			else{
+		 				$Ifdo=1;
+		 				last;
+		 			}
+			}
+				 $SumI=abs($SumI);
+				 if($Ifdo==0 && $SumI==$Sample_number){
+					 my $Entropy=&EntropyCalculateEachrow(@Compavmethy);
+					 if($Entropy>$EntropyThroshold){
+					 	my @m1=split(/_/,$SSav);						 
+						my $q1=join("_",@m1);
+						print OUTCon "$Chr\t$ff[0]\t$ff[1]\t$Len\t$q1\t$ff[3]\t$Entropy\n";
+						if($ucsc){
+								print CMR "$Chr\t$ff[0]\t$ff[1]\tCMR\t0\t+\t$ff[0]\t$ff[1]\t58,181,74\n";
+							}
+						
+					     }			 
+				 }
+			}
+			close(OUTCon);
+			
+			
+			open(OUTDif,">$Dif_Con_output_folder/DMR/$Chr.dmr")or die "can't open Dif path $!\n";######################	 
+			print OUTDif "Chromosome\tStart_position\tEnd_position\tLength\tAverage_methylation_level\tV_value\tEntropy\n";	
+			if($ucsc){
+					open DMR,">","$Dif_Con_output_folder/DMR/$Chr.bed";
+					print DMR qq(track itemRgb="On" name="Methylation Region" description="methylation patterns regions" visibility=3\n);
+				}
+				
+				
+			my $Parraysize=@Parray;
+			for(my $Region=0;$Region<$Parraysize;$Region++){
+				
+				my $SSav="";
+				my @yy1=split(/\s+/,$Parray[$Region]);
+	       	 my $Begin=$yy1[0];
+	       	 my $End=$yy1[1]; 
+	       	 my $Size=$End-$Begin;
+	       	 my $IfdoP=0;
+	       	 my @ComDifavmethy;
+	       	 for(my $Sample=0;$Sample<$Sample_number;$Sample++){
+	       	 	 my $Innum=0;
+	       	 	 my $Summethy=0;
+	       	 	 my $Avmethy=0;
+	 			for(my $k=$biaoji[$Sample];$k<$MethyIndex[$Sample];$k++){
+	 				
+	 				if($Position[$k][$Sample]>=$Begin&&$Position[$k][$Sample]<=$End){
+	 				 	$Innum++;
+	 				 	$Summethy=$Summethy+$MethyInfor[$k][$Sample];
+	 					next;
+	 				}
+	 				if($Position[$k][$Sample]>$End){
+	 					$biaoji[$Sample]=$k;
+	 					last;
+	 				}
+	 			} 
+	 			if($Innum<$CpG_number){
+	 				$IfdoP=1;
+	 				last;
+	 			}
+	 			else{
+	 				$Avmethy=$Summethy/$Innum;		 					 				
+	 				 my $Avresult=sprintf "%0.3f",$Avmethy;
+	 				 $ComDifavmethy[$Sample]=$Avresult;		 
+	 				 $SSav=$SSav.$Avresult."_";
+	 			}
+	       	 }
+			if($IfdoP==0){
+				
+				 my $Entropy=&EntropyCalculateEachrow(@ComDifavmethy);
+				 if($Entropy<$EntropyThroshold){
+					my @m1=split(/_/,$SSav);						 
+					my $q1= join("_",@m1);		
+					print OUTDif "$Chr\t$yy1[0]\t$yy1[1]\t$Size\t$q1\t$yy1[3]\t$Entropy\n";	 
+					
+					if($ucsc){
+							print DMR "$Chr\t$yy1[0]\t$yy1[1]\tDMR\t0\t+\t$yy1[0]\t$yy1[1]\t238,29,35\n";
+						}
+				 }
+			}							
+			}
+			close(OUTDif);   			
+					
+					}####循环每条染色体	
+			        	 } ####mutiple samples
+			        	   
+ #################运行程序结束
+if($ucsc){
+	mkdir "$Dif_Con_output_folder/UCSC" if(!-e "$Dif_Con_output_folder/UCSC");
+	my @cmr_arr = glob("$Dif_Con_output_folder/CMR/*.bed");
+	
+	foreach my $cmr_file(@cmr_arr){
+		my $file = $cmr_file;
+		$file =~ s/CMR/DMR/;
+		
+		open IN1,"<",$cmr_file;
+		open IN2,"<",$file;
+		
+		my %hs = ();
+		my $head =qq(track itemRgb="On" name="Methylation Region" description="methylation patterns regions" visibility=3\n);
+		<IN1>;
+		while(my $line = <IN1>){
+			my @arr = split(/\s+/,$line);
+			$hs{$arr[1]} = $line;
+		}
+		
+		<IN2>;
+		while(my $line = <IN2>){
+			my @arr = split(/\s+/,$line);
+			$hs{$arr[1]} = $line;
+		}
+		
+		close IN1;
+		close IN2;
+		unlink($cmr_file);
+		unlink($file);
+		
+		$file =~ s/DMR/UCSC/;
+		open OUT,">",$file;
+		print OUT $head;
+		foreach my $key(sort {$a <=> $b} keys %hs){
+			print OUT $hs{$key};
+		}
+		close OUT;
+	}
+}
+
+sub TwoSamples{###(样本1的甲基化模式路径，样本2的甲基化模式路径)
+	open(IN1,"$_[0]") or die "can't open DNA methylation pattern path $_[0] $!\n";
+	<IN1>;
+	my @Simple1arrayStart;
+	my @Simple1arrayEnd;
+	my @Simple1arrayPattern;
+	my @Difend;
+	my $Difsize=0;
+	my $Simple1Size=0;
+	while(<IN1>){
+		chomp($_);
+		my @a=split(/\s+/,$_);
+		$Simple1arrayStart[$Simple1Size]=$a[1];
+		$Simple1arrayEnd[$Simple1Size]=$a[2];
+		$Simple1arrayPattern[$Simple1Size]=$a[3];
+		$Simple1Size++;
+		}
+	close(IN1);
+	open(IN2,"$_[1]") or die "can't open DNA methylation pattern path $_[1] $!\n";
+	<IN2>;
+	 while(<IN2>){
+	 	chomp($_);
+		my @text=split(/\s+/,$_);
+		my $Begin=$text[1];
+		my $End=$text[2];
+		  for(my $i=0;$i<$Simple1Size;$i++)
+					{ 
+		           my $ss="";
+						 if($End<$Simple1arrayStart[$i])
+					     {last;}
+						 if($Begin<=$Simple1arrayStart[$i] && $End>=$Simple1arrayEnd[$i])
+					     {	
+					     my $leng=$Simple1arrayEnd[$i]-$Simple1arrayStart[$i]+1;
+					     if($Simple1arrayPattern[$i]==-1){				    	 
+					    	 my $flag="-1 $text[3]";
+					    	 $ss="$text[0]\t$Simple1arrayStart[$i]\t$Simple1arrayEnd[$i]\t$leng\t$flag";
+					     }
+					     else{	
+					    	 my $flag="1 $text[3]";
+					    	 $ss="$text[0]\t$Simple1arrayStart[$i]\t$Simple1arrayEnd[$i]\t$leng\t$flag";
+					     }
+					     $Difend[$Difsize]=$ss;
+					     $Difsize++;
+					    next;}
+						 
+						 if($Begin<=$Simple1arrayStart[$i] && $End>=$Simple1arrayStart[$i] && $End<$Simple1arrayEnd[$i])
+					      { 
+					          my $leng=$End-$Simple1arrayStart[$i]+1;
+					          if($Simple1arrayPattern[$i]==-1){
+							      	 my $flag="-1 $text[3]";
+							    	 $ss="$text[0]\t$Simple1arrayStart[$i]\t$End\t$leng\t$flag"; 
+					          }
+					          else{
+					        	 
+							      my $flag="1 $text[3]";  
+							      $ss="$text[0]\t$Simple1arrayStart[$i]\t$End\t$leng\t$flag"; 
+					          }
+						     $Difend[$Difsize]=$ss;
+					     $Difsize++;
+					    next;
+					      } 
+						 
+						 if($Begin>$Simple1arrayStart[$i] && $End<=$Simple1arrayEnd[$i])
+					      {
+				          my $leng=$End-$Begin+1;
+				          if($Simple1arrayPattern[$i]==-1){
+						    	 my $flag="-1 $text[3]";
+						    	 $ss="$text[0]\t$Begin\t$End\t$leng\t$flag";
+						     }
+						     else{
+						    	 my $flag="1 $text[3]";
+						    	 $ss="$text[0]\t$Begin\t$End\t$leng\t$flag";
+						     }
+						     $Difend[$Difsize]=$ss;
+					     $Difsize++;
+					    next;
+					      }
+						 
+						 if($Begin>$Simple1arrayStart[$i] && $Begin<=$Simple1arrayEnd[$i] && $End>=$Simple1arrayEnd[$i])
+					      {
+					       my $leng=$Simple1arrayEnd[$i]-$Begin+1;
+					       if($Simple1arrayPattern[$i]==-1){
+						    	 my $flag="-1 $text[3]";
+						    	 $ss="$text[0]\t$Begin\t$Simple1arrayEnd[$i]\t$leng\t$flag";
+						     }
+						     else{
+						    	 my $flag="1 $text[3]";
+						    	 $ss="$text[0]\t$Begin\t$Simple1arrayEnd[$i]\t$leng\t$flag";
+						     }
+						      $Difend[$Difsize]=$ss;
+					     $Difsize++;
+					    next;
+					      }
+						 }	
+		        }	###end while IN2
+	 
+			  my @Dif;
+			  my $Diflen=0;
+			  my $Coni=0;
+			  my $flag1="1 -1";
+			  my $flag2="-1 1";
+			  my $Alli=0;
+			  while($Alli<$Difsize){
+				  my @ss=split(/\t/,$Difend[$Alli]);
+				  my $MergeStart=$ss[1];
+		      my $MergeEnd=$ss[2];
+		          if(($ss[4] eq $flag1)|| ($ss[4] eq $flag2)){
+		        	  my $Extendi=$Alli;
+					  for($Extendi=$Alli+1;$Extendi<$Difsize;$Extendi++){
+						  my @dd=split(/\t/,$Difend[$Extendi]);
+						  my $NextStart=$dd[1];
+				      my $NextEnd=$dd[2];  
+						  my $Juli=$NextStart-$MergeEnd;
+						 
+						  if($Juli<200 && ($ss[4] eq $dd[4])){
+							  $MergeEnd=$NextEnd; 
+							###  System.out.println("MERGE dif");
+						  }
+						  else{
+							  my $leng=$MergeEnd-$MergeStart+1;
+							  my $ww="$ss[0]\t$MergeStart\t$MergeEnd\t$leng\t$ss[4]";
+							  $Dif[$Diflen]=$ww;
+							  $Diflen++;
+							  $Alli=$Extendi;
+							  last;
+						  }
+					  }
+					  if($Extendi>=$Difsize){
+						  my $leng=$MergeEnd-$MergeStart+1;
+						  my $ww="$ss[0]\t$MergeStart\t$MergeEnd\t$leng\t$ss[4]";
+						   $Dif[$Diflen]=$ww;
+						   $Diflen++;
+							 $Alli=$Extendi;
+					  }
+				  }
+		          else{		        	  
+		        	  my $Extendi=$Alli;
+					  for($Extendi=$Alli+1;$Extendi<$Difsize;$Extendi++){
+						  my @dd=split(/\t/,$Difend[$Extendi]);
+						  my $NextStart=$dd[1];
+				      my $NextEnd=$dd[2];  
+						  my $Juli=$NextStart-$MergeEnd;
+						  if($Juli<200 && ($ss[4] eq $dd[4])){
+							  $MergeEnd=$NextEnd; 	
+							 ###System.out.println("MERGE con");
+						  }
+						  else{
+							  my $leng=$MergeEnd-$MergeStart+1;
+							  my $ww="$ss[0]\t$MergeStart\t$MergeEnd\t$leng\t$ss[4]";
+							  $Con[$Coni]=$ww;
+							  $Coni++;
+							  $Alli=$Extendi;
+							  last;
+						  }
+					  }
+					  if($Extendi>=$Difsize){
+						  my $leng=$MergeEnd-$MergeStart+1;
+						  my $ww="$ss[0]\t$MergeStart\t$MergeEnd\t$leng\t$ss[4]";
+						  $Con[$Coni]=$ww;
+							  $Coni++;
+							  $Alli=$Extendi;
+					  }
+		          } 				  
+			  }
+		##	  print "the return len of dif $Diflen\n";
+			 return @Dif;	
+	}###two sample
+	
+	
+	sub MultipleSamples{####(String[] PatternAdress,String[] NormPath,double N,double V) throws NumberFormatException, IOException
+		
+		my @Region;
+		my $Regionlen=0;		
+		my @PoHigh;
+		my @PoLow;		
+		my @Position=&CGlocation;
+		my $PositionIndex=@Position; 
+		###print "The last position is $Position[$PositionIndex-1]\n";
+		for(my $ini=0;$ini<$PositionIndex;$ini++){
+			$PoLow[$ini]=0;
+			$PoHigh[$ini]=0;
+			}
+		for(my $SampleId=0;$SampleId<$Sample_number;$SampleId++){
+			open(IN1,"$_[$SampleId]") or die "can't open methylation pattern data \n$!\n";#########$PatternAdress[$SampleId]
+		 ## print "The compute sampe $_[$SampleId]\n";
+			 my @Simple1Start;
+			 my @Simple1End;
+			 my @Simple1Pattern;
+			 my $Simple1i=0;
+			<IN1>;
+			  while(<IN1>)
+		        {
+		        	my @text=split(/\s+/,$_);
+		        	$Chr=$text[0];
+		        	$Simple1Start[$Simple1i]=$text[1];
+		        	$Simple1End[$Simple1i]=$text[2];
+		        	$Simple1Pattern[$Simple1i]=$text[3];
+		        	$Simple1i++;
+		        }
+			  close(IN1);
+			  my $biaoji=0;
+			  for(my $P=0;$P<$Simple1i;$P++){
+				for(my $i=$biaoji;$i<$PositionIndex;$i++){
+					if($Position[$i]>=$Simple1Start[$P] && $Position[$i]<=$Simple1End[$P]){
+						if($Simple1Pattern[$P]==1){
+							$PoHigh[$i]=$PoHigh[$i]+1;
+						}
+						else{
+							$PoLow[$i]=$PoLow[$i]+1;
+						}
+					}
+					if($Position[$i]>$Simple1End[$P]){
+						$biaoji=$i;
+						last;
+					}					
+				} 			
+			  }
+		}
+	##	print "the high low is $PoLow[$PositionIndex-1] and $PoHigh[$PositionIndex-1]\n";
+		my $Merge=0;
+		my $qi=0;
+		while($Merge<$PositionIndex){
+			my $Sum=$PoHigh[$Merge]+$PoLow[$Merge];
+			if($Sum>=1){
+				my $Flag=1;
+				my $HighLow=$PoHigh[$Merge]-$PoLow[$Merge];
+				my $Pattern=$HighLow;
+				my $StartSite=$Position[$Merge];
+				my $EndSite=$Position[$Merge];
+	      my $qq1=$Sum/$Sample_number;
+
+	            	if($HighLow>0){
+	    				if($PoLow[$Merge]==0){
+	    				$Pattern=1;
+	    				}
+	    				else{
+	    					$Pattern=2;
+	    				}
+	    			}
+	    			if($HighLow<0){
+	    				if($PoHigh[$Merge]==0){
+	    					$Pattern=-1;
+	    					}
+	    					else{
+	    						$Pattern=-2;
+	    					}
+	    			}
+	            for($qi=$Merge+1;$qi<$PositionIndex;$qi++){
+					my $Sum1=$PoHigh[$qi]+$PoLow[$qi];
+					if($Sum1>=1){
+						my $HighLow1=$PoHigh[$qi]-$PoLow[$qi];
+						my $qq2=$Sum1/$Sample_number;	
+						if($qq1==$qq2 && $HighLow==$HighLow1){
+							$Flag++;
+							$EndSite=$Position[$qi];														
+						}
+						else{
+							$Merge=$qi;
+							last;
+						}
+					}
+					else{
+						$Merge=$qi+1;
+						last;
+					}					
+	            }
+	            if($qi==$PositionIndex){
+	            	$Merge=$qi+1;
+	            }
+	            if($Flag>=3){
+	            	my $TempS="$StartSite\t$EndSite\t$qq1\t$Pattern\t0";
+	 	            $Region[$Regionlen]=$TempS;	
+	 	            $Regionlen++;	            
+	 	            }	           
+			}
+			else{
+				$Merge++;
+			}
+			}
+	##	print "the first search is over and the len is $Regionlen and last value is $Region[$Regionlen-1]\n";
+		 my $Maxq=&valueMax(@Region);
+		### print "the max value is $Maxq\n";
+		 my $lastregionlen=@Region;
+		 while($Maxq>$V_value){		 
+		 my @TempRegion;
+		 my $TempRegionlen=0;
+		 my $MergeRegionEnd=-1;
+		 my $Regioni=0;
+         while($Regioni<$lastregionlen){
+        	my @tt=split(/\s+/,$Region[$Regioni]); 
+        	my $ff=$tt[2]; 
+        	my $Pattern=$tt[3];
+        	my $Must=$tt[4];       	
+        	if($ff==$Maxq && $Must==0){
+        		my $LastIndex=$Regioni-1;
+            my $NextIndex=$Regioni+1;
+        		my $MergeRegionFirst=$Regioni;
+        		my $TempMergeRegionEnd=$Regioni;
+        		my $StartSite=$tt[0];
+        		my $TempStartSite=$StartSite;	        		
+        		my $EndSite=$tt[1];
+        		my $TempEndSite=$EndSite;
+        		while($LastIndex>$MergeRegionEnd){
+        			my @ss=split(/\s+/,$Region[$LastIndex]); 
+                	my $ff1=$ss[2]; 
+                	my $Patternp=$ss[3];
+                	my $Mustp=$ss[4];
+                  my $Juli=$TempStartSite-$ss[1];
+                	$TempStartSite=$ss[0];
+                	if($ff1>$V_value && $Pattern==$Patternp && $Mustp==0 && $Juli<200){
+                		$MergeRegionFirst=$LastIndex;
+                		$StartSite=$ss[0];
+                		$LastIndex--;                		
+                	}
+                	else{
+                		for(my $i=$MergeRegionEnd+1;$i<$MergeRegionFirst;$i++){
+                			$TempRegion[$TempRegionlen]=$Region[$i]; 
+                			$TempRegionlen++;               			
+                		}
+                		last;;
+                	}
+            	}       		
+        		while($NextIndex<$lastregionlen){
+        			    my @ss=split(/\s+/,$Region[$NextIndex]); 
+                	my $qq1=$ss[2]; 
+                	my $Patternp=$ss[3];
+                	my $Mustp=$ss[4];
+                	my $Juli=$ss[0]-$TempEndSite;
+                	$TempEndSite=$ss[1];
+                	if($qq1>$V_value && $Pattern==$Patternp && $Mustp==0 && $Juli<200){
+                		$TempMergeRegionEnd=$NextIndex;
+                		$EndSite=$ss[1];
+                		$NextIndex++;                		
+                	}
+                	else{
+                		$Regioni=$NextIndex;
+                		last;
+                	}       			
+        		}
+        		if($NextIndex>=$lastregionlen){
+        		$Regioni=$NextIndex+1;	
+        		}
+        		$MergeRegionEnd=$TempMergeRegionEnd;
+        		my $Tess="$StartSite\t$EndSite\t0\t$Pattern\t1\t$ff";
+        		$TempRegion[$TempRegionlen]=$Tess;
+        		      $TempRegionlen++;  		
+            	        }
+        	else{
+        		$Regioni++;
+        	}        	
+         } 
+         
+         @Region=@TempRegion;
+         $lastregionlen=@Region;
+         $Maxq=&valueMax(@Region);
+        ## print "the next v value is $Maxq\n";
+		 } 
+		 
+		 
+		## print "the last length is $lastregionlen\n";
+		 my @Difmm;
+		 my $Diflenmm=0;
+		 my $Conlen=0;	
+		 for(my $m1=0;$m1<$lastregionlen;$m1++){
+			 my @ss=split(/\s+/,$Region[$m1]); 
+			 my $Pattern=$ss[3];
+       my $Left=$ss[4];
+         	if($Left==1){
+         		if($Pattern==2 || $Pattern==-2 || $Pattern==0){
+         			my $Temp="$ss[0]\t$ss[1]\t$ss[3]\t$ss[5]";
+         			$Difmm[$Diflenmm]=$Temp;
+         			$Diflenmm++;
+         		}
+         		if($Pattern==1 || $Pattern==-1){
+         			my $Temp="$ss[0]\t$ss[1]\t$ss[3]\t$ss[5]";       		
+         			$Con[$Conlen]=$Temp;
+         			$Conlen++;
+         		}
+         	}
+		 }
+		 my $ggdif=@Difmm;
+		## print "the last dif is $Difmm[$ggdif-1] and the len is $ggdif\n";
+		 return @Difmm;	
+	}  	####multiple samples
+	
+	
+	sub valueMax{####(String[] Array)
+		my @aa=split(/\s+/,$_[0]);
+		my $len=@_;
+		my $max=$aa[2]; 
+		for(my $i=1;$i<$len;$i++){
+			my @ww=split(/\s+/,$_[$i]);
+			my $Temp=$ww[2]; 
+			if($Temp>$max){
+				$max=$Temp;				
+			}			
+		}
+		return $max;
+	}
+
+     
+		 sub EntropyCalculateEachrow{####(double[] EachRowData),$Sample_number
+		    	my $Sum=0; 
+		    	my $H=0;  
+		    	my $W=1;   
+		    	my $MaxReal=1;
+		    	my $MinReal=0;
+		    	my $MaxMethylationLevel=1;
+		    	my @X_New; 
+		    	my @P_New; 
+		    	my @Mel=@_;
+		    	my $T=&Tukey_biweight(@Mel);###,$Sample_number
+		    	
+		    	for(my $i=0;$i<$Sample_number;$i++){       
+		    		$X_New[$i]=abs($Mel[$i]-$T);
+		    		if($X_New[$i]<0.01){
+		    			$X_New[$i]=0.01;  
+		    		}
+		    		$Sum=$Sum+$X_New[$i];
+		    	}
+		    	
+		    	for(my $j=0;$j<$Sample_number;$j++){
+		    		
+		    		$P_New[$j]=$X_New[$j]/$Sum;
+		    		$H=$H+$P_New[$j]*(log($P_New[$j])/log(2)); 
+		    	}
+		    	
+		    	$H=-$H; 
+		    	$MaxReal=&getMax(@Mel); 
+		    	$MinReal=&getMin(@Mel); 
+		    	my $Range=($MaxReal-$MinReal)/($MaxMethylationLevel-0)+$e;
+		    	$W=abs(log($Range)/log(2));  
+		    	$T=$H*$W; 
+		    return $T;	
+		    }###EntropyCalculateEachrow
+
+   sub Tukey_biweight{###(double[] EachRowData,int SampleNum)$Sample_number
+		     	 my $c=5;      
+		     	 my $Median=0;  
+		     	 my $S=0;  
+		     	 my @MAD;
+		     	 my @TandU;  
+		     	 my @W; 
+		     	 my $Sum=0;
+		     	 $TandU[0]=0;
+		     	 
+		     	 $Median=&getMedian(@_);    
+		     	 
+		     	 for (my $i=0;$i<$Sample_number;$i++){    
+		     		$MAD[$i]=abs($_[$i]-$Median);  
+		     	 }
+		     	 
+		     	 $S=&getMedian(@MAD);    
+		     	 
+		     	 my $Fenmu=$c*$S+$e;   
+		     	 for(my $j=1;$j<($Sample_number+1);$j++){      
+		     		 $TandU[$j]=($_[$j-1]-$Median)/$Fenmu;
+		     		 my $absTandU=abs($TandU[$j]);
+		     		 if($absTandU<=1)  
+		     		 {
+		     		 	$W[$j-1]=(1-$TandU[$j]*$TandU[$j])*(1-$TandU[$j]*$TandU[$j]);
+		     		 	}
+		     		 else{
+		     		 	 $W[$j-1]=0;
+		     		 	}
+		     		 $Sum=$Sum+$W[$j-1];
+		     		 $TandU[0]=$TandU[0]+$W[$j-1]*$_[$j-1];
+		     	 }
+		     	$TandU[0]=$TandU[0]/$Sum;
+		     	 return $TandU[0];
+		    }####Tukey_biweight
+		    
+		    sub getMedian{####(double[] inputData) 
+			  my $len=@_;
+			  my @newData;
+			  for(my $i=0;$i<$len;$i++){
+				  $newData[$i]=$_[$i];
+			  }
+			  my @SortedData=&BubbleSort(@newData);  
+			  if($len%2 != 0)  {return $SortedData[$len/2];}    
+			  else {return ($SortedData[$len/2]+$SortedData[$len/2-1])/2;}  
+			 }####getMedian
+			 
+			sub BubbleSort{###(double a[]) 
+					my $temp=0;
+					my $size =@_;
+					my @a=@_;
+					for(my $i=$size-1; $i>=1; $i--){
+					my $end ="Yes"; 
+					for(my $j=0; $j < $i; $j++) { 
+						if($a[$j] > $a[$j+1]) {
+						$temp = $a[$j];
+						$a[$j] = $a[$j+1];
+						$a[$j+1] = $temp;
+						$end ="No"; 
+						}
+					  }
+					  if($end eq "Yes") {
+					  last; 
+					  } 
+					}
+		        return @a;			
+				}###BubbleSort
+				
+		sub getMax{####(double[] inputData) 
+			  my $max=$_[0];
+			  my $len =@_;
+			  
+			  for (my $i=0;$i<$len;$i++) {
+			   if ($max < $_[$i]){
+			    $max=$_[$i];
+			  }}
+			  return $max;
+			 }#####getMax
+			 
+		 sub getMin{#####(double[] inputData) 
+			 my $min=$_[0];
+			 my $len =@_;
+			  for (my $i = 0; $i < $len; $i++) {
+			   if ($min >$_[$i])
+			    {$min =$_[$i];}
+			  }
+			  return $min;
+			 }    ####getMin  
+			 
+		sub returnThroshod{#####(int Sample)
+		my @Entropy=(1.659,0.697,1.991,2.701,3.259,3.636,3.975,4.22,4.464,4.637,4.804,4.953,5.099,5.235,5.326,5.425,5.522,5.601,5.689,5.767,5.836,5.905,5.964,6.001,6.073,6.139,6.18,6.249,6.292,6.328,6.39,6.419,6.461,6.493,6.544,6.57,6.601,6.632,6.671,6.703,6.727,6.749,6.793,6.808,6.836,6.865,6.882,6.919,6.939,6.963,6.993,7.001,7.014,7.037,7.066,7.091,7.104,7.134,7.142,7.174,7.185,7.195,7.211,7.23,7.248,7.26,7.28,7.295,7.308,7.317,7.34,7.364,7.384,7.387,7.381,7.414,7.435,7.423,7.45,7.449,7.468,7.487,7.51,7.506,7.513,7.539,7.541,7.557,7.569,7.573,7.6,7.601,7.622,7.625,7.625,7.636,7.649,7.659,7.676);
+		my  $qq1=$_[0]-2;
+		return $Entropy[$qq1];
+		}
+		
+sub CGlocation{
+	my $linenum=50;
+	open (IN,"$Reference_genome_folder/$Chr.fa") or die "can't open reference genenome sequence $!\n$Reference_genome_folder/$Chr.fa\n";#####@CGlocation;  my $CGloi=0;
+    my $h=0;
+my $hangshu=-1;
+my @CGlocation="";
+my $f_1="";
+my $f_2="";
+my $f_3="";
+my $line="";
+my $cg=0;
+while(<IN>)
+ {chomp($_);
+  next if(/^>/);
+  $line=lc($_);
+  $line=join("",$f_3,$line);
+  $hangshu++;
+  my $before=0;
+  while(1)
+     {$cg=index($line,"cg",$before);
+      last if($cg==-1);
+      $CGlocation[$h++]=$hangshu*$linenum+$cg+1;
+      $before=$cg+2;}
+      $f_1=$line;
+      $f_2=chop($f_1);
+      read(IN,$f_3,1);
+      $f_3=lc($f_3);
+   if($f_2=~/c/&&$f_3=~/g/)
+     {$CGlocation[$h++]=$hangshu*$linenum+$linenum;
+     }
+    }
+my $CGloi=$h;
+close(IN);
+return @CGlocation;
+			}	
+
+
+sub print_helpfile{
+	print qq(
+---------------------------------- HELP ---------------------------------------
+You can use this tool to get differentially methylation regions from mutiple methylomes.
+------------------
+USAGE:	CpG_MPs_Dif_Con [options] [--patterns <folder_string>] [--methy <folder_string>] [-o <folder>]
+------------------
+ARGUMENTS:
+	-h,--help,--man
+				Display the helpfile.
+ OPTION:
+	--V_value
+				The value is set to estimate the identified differentially methylation regionor conserved region covered by the extent of samples. 
+				The identified region is more reliable with larger V_value.The default V_value is more than 0.5.
+	--CpG_number
+				The identified differentially methylation region or conserved region must contain ≥CpG_numberCpG sites. The default CpG_number is set as 4.
+				
+	--ucsc
+				export extra ".bed" files in outdir to display on UCSC. 
+ I/O:
+	--patterns
+				The patterns folder string.Split by ",".REQUIRED. like this: NP_patterns,ESC_patterns  
+	--methy
+				The input methy folder (comes from CpG_MPs_normalization).REQUIRED
+				Split by  ",".like this NP_methy,ESC_methy
+	-o,--outdir	
+				The output folder.REQUIRED
+------------------
+EXAMPLE:
+	CpG_MPs_Dif_Con --ucsc --patterns NP_patterns,ESC_patterns,PGC_patterns --methy NP_methy,ESC_methy,PGC_methy -o NP_ESC_PGC
+	  Get differentially methylation regions and conserved methylation regions from NP_methy folder.
+	  The result is in NP_ESC_PGC.Export extra ".bed" files.
+
+ OUTPUT:
+	output will like this (chr1.dmr):
+		Chromosome      Start_position  End_position    Length  Average_methylation_level       V_value Entropy
+		chr1    3943631 3943805 174     0.673_0.094_0.673       1       0.192695486142842
+		chr1    4588643 4589123 480     0.233_0.706_0.233       1       0.308232831955781
+		chr1    4679290 4679477 187     0.897_0.273_0.897       1       0.156921500047012
+		chr1    4759803 4760445 642     0.561_0.261_0.561       1       0.694229364256945
+		chr1    4774603 4774873 270     0.917_0.152_0.917       1       0.0759645439391204
+-------------------------------------------------------------------------------
+);
+}
