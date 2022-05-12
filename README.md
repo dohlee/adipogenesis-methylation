@@ -50,7 +50,9 @@ This directory contains the processing pipeline for 3T3-L1 preadiopcyte histone 
 
 *Related to Fig. 2n,o and Extended Data Fig. 2c*
 
-This directory contains the processing pipeline for 24 PC-HiC runs (SRR5297630 ~ 53) from SRA study SRP100871 (or GSE95533, Siersbæk et al. 2017). Pipeline is written in `snakemake` so that fetching SRA runs (by `prefetch`), dumping them to fastq files (by `parallel-fastq-dump`), alignment and di-tag post-processing (by `HiCUP`), and identification of significant interactions (by `CHiCAGO`) can be done automatically using single command.
+This directory contains the processing pipeline for 24 PC-HiC runs (SRR5297630 ~ 53) from SRA study SRP100871 (or GSE95533, Siersbæk et al. 2017). Pipeline is written in `snakemake`.
+It first fetches SRA runs (by `prefetch`), dumps them to fastq files (by `parallel-fastq-dump`).
+Alignment and di-tag post-processing are done by `HiCUP` and identification of significant interactions is by `CHiCAGO`.
 
 ## Citation
 

@@ -7,7 +7,7 @@ ASCP_BIN = config['ascp_bin']
 ASCP_KEY = config['ascp_key']
 
 RUNS = [f'SRR52976{i}' for i in range(30, 54)]
-print(len(RUNS))
+# print(len(RUNS))
 
 manifest = pd.read_csv('manifest.csv')
 exps = manifest.experiment.unique()
@@ -24,6 +24,15 @@ rule all:
         # expand('result/{run}.read1_2.pair.sorted_by_name.dedup.bam', run=RUNS),
         # expand('{run}/{run}.chinput', run=RUNS),
         expand('chicago_result_score3/{exp}/{exp}.filtered.bedpe', exp=exps),
+
+rule run_hicup:
+    input:
+        fastq = expand('data/{run}.read1.fastq.gz', run=RUNS),
+        conf = 'hicup_pc_hic.conf',
+    output:
+        expand('result/{run}.read1_2.pair.bam', run=RUNS)
+    shell:
+        'hicup --config {input.conf}'
 
 rule run_chicago:
     input:
