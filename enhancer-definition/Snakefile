@@ -1,0 +1,180 @@
+from pathlib import Path
+
+configfile: 'config.yaml'
+
+targets = [
+    # 'H3K4me3',
+    # 'H3K4me2',
+    'H3K4me1',
+    'H3K27ac',
+    # 'H3K27me3',
+    # 'H3K36me3',
+    # 'CTCF',
+]
+
+# broad_targets = ['H3K27me3', 'H3K36me3', 'H3K4me1']
+# narrow_targets = ['H3K4me3', 'H3K4me2', 'H3K27ac', 'CTCF']
+broad_targets = ['H3K4me1']
+narrow_targets = ['H3K27ac']
+
+timepoints = ['t1', 't2', 't3', 't4']
+
+target_time2runs = {
+    # ('H3K4me3', 't1'): ['SRR040096', 'SRR040097', 'SRR040098'],
+    # ('H3K4me2', 't1'): ['SRR040099', 'SRR040100'],
+    ('H3K4me1', 't1'): ['SRR040101', 'SRR040102'],
+    ('H3K27ac', 't1'): ['SRR040103', 'SRR040104'],
+    # ('H3K27me3', 't1'): ['SRR040105', 'SRR040106', 'SRR040107', 'SRR040108'],
+    # ('H3K36me3', 't1'): ['SRR040109', 'SRR040110'],
+    # ('CTCF', 't1'): ['SRR040111', 'SRR040112',],
+    # ('H3K4me3', 't2'): ['SRR040113', 'SRR040114', 'SRR040115', 'SRR040116'],
+    # ('H3K4me2', 't2'): ['SRR040117', 'SRR040118'],
+    ('H3K4me1', 't2'): ['SRR040119', 'SRR040120'],
+    ('H3K27ac', 't2'): ['SRR040121', 'SRR040122'],
+    # ('H3K27me3', 't2'): ['SRR040123', 'SRR040124'],
+    # ('H3K36me3', 't2'): ['SRR040125', 'SRR040126', 'SRR040127', 'SRR040128'],
+    # ('CTCF', 't2'): ['SRR040129', 'SRR040130'],
+    # ('H3K4me3', 't3'): ['SRR040131', 'SRR040132', 'SRR040133'],
+    # ('H3K4me2', 't3'): ['SRR040134', 'SRR040135', 'SRR040136'],
+    ('H3K4me1', 't3'): ['SRR040137', 'SRR040138', 'SRR040139'],
+    ('H3K27ac', 't3'): ['SRR040140', 'SRR040141'],
+    # ('H3K27me3', 't3'): ['SRR040142', 'SRR040143', 'SRR040144', 'SRR040145'],
+    # ('H3K36me3', 't3'): ['SRR040146', 'SRR040147'],
+    # ('CTCF', 't3'): ['SRR040148', 'SRR040149'],
+    # ('H3K4me3', 't4'): ['SRR040150', 'SRR040151', 'SRR040152', 'SRR040153'],
+    # ('H3K4me2', 't4'): ['SRR040154', 'SRR040155', 'SRR040156'],
+    ('H3K4me1', 't4'): ['SRR040157', 'SRR040158', 'SRR040159'],
+    ('H3K27ac', 't4'): ['SRR040160', 'SRR040161', 'SRR040162'],
+    # ('H3K27me3', 't4'): ['SRR040163', 'SRR040164'],
+    # ('H3K36me3', 't4'): ['SRR040165', 'SRR040166', 'SRR040167', 'SRR040168'],
+    # ('CTCF', 't4'): ['SRR040169', 'SRR040170'],
+}
+
+control_runs = ['SRR0400' + str(i) for i in range(87, 96)]
+enhancer_markers = ['H3K27ac', 'H3K4me1']
+
+DATA_DIR = Path(config['data_dir'])
+RESULT_DIR = Path(config['result_dir'])
+ANN_DIR = Path(config['annotation_dir'])
+GENOME_FEATURE_DIR = Path(config['genome_feature_dir'])
+
+include: 'rules/fetch-data.smk'
+include: 'rules/macs2.smk'
+include: 'rules/bowtie.smk'
+include: 'rules/sambamba.smk'
+include: 'rules/deeptools.smk'
+
+wildcard_constraints:
+    run = 'SRR[0-9]+',
+    timepoint = 't[0-9]+'
+
+ruleorder:
+    bowtie > sambamba_sort
+
+rule all:
+    input:
+        #
+        # Fetch data.
+        # expand(str(DATA_DIR / '{run}.fastq.gz'), run=control_runs)
+        #
+        # Step 1. Concat fastq file to make a single file.
+        # expand(str(RESULT_DIR / '01_concat_fastq' / '{target}.{timepoint}.fastq.gz'), target=targets, timepoint=timepoints),
+        # str(result_DIR / '01_concat_fastq' / 'control.fastq.gz'),
+        #
+        # Step 2. Align reads with bowtie.
+        expand(str(RESULT_DIR / '02_bowtie' / '{target}.{timepoint}.sorted.bam'), target=targets, timepoint=timepoints),
+        expand(str(RESULT_DIR / '02_bowtie' / '{target}.{timepoint}.sorted.bam.bai'), target=targets, timepoint=timepoints),
+        str(RESULT_DIR / '02_bowtie' / 'control.sorted.bam'),
+        str(RESULT_DIR / '02_bowtie' / 'control.sorted.bam.bai'),
+        expand(str(RESULT_DIR / '02_bowtie' / '{target}.{timepoint}.sorted.bed'), target=targets, timepoint=timepoints),
+        str(RESULT_DIR / '02_bowtie' / 'control.sorted.bed'),
+        expand(str(RESULT_DIR / '02_bowtie' / '{target}.{timepoint}.bw'), target=targets, timepoint=timepoints),
+        #
+        # Step 3. MACS2 filterdup.
+        #expand(str(RESULT_DIR / '03_filterdup' / '{target}.{timepoint}.sorted.filterdup.bed'), target=targets, timepoint=timepoints),
+        #str(RESULT_DIR / '03_filterdup' / 'control.sorted.filterdup.bed'),
+        #
+        # Step 4. MACS2 call narrow peak.
+        expand(str(RESULT_DIR / '04_callpeak' / '{target}.{timepoint}_peaks.narrowPeak'), target=narrow_targets, timepoint=timepoints),
+        expand(str(RESULT_DIR / '04_callpeak' / '{target}.{timepoint}_peaks.broadPeak'), target=broad_targets, timepoint=timepoints),
+        #
+        # Step 5. Merge peaks for all timepoints.
+        #expand(str(RESULT_DIR / '05_merge_peaks_for_all_timepoints' / '{target}.narrowPeak'), target=targets),
+        #
+        # Step 6. Generate enhancer bed.
+        str(ANN_DIR / '3T3L1.enhancer.bed'),
+        #
+        # Step 7. Get pileup files for histone markers.
+        #expand(str(GENOME_FEATURE_DIR / '3T3L1.{target}.{timepoint}.sorted.bedGraph'), target=targets, timepoint=timepoints),
+        #
+        # Step 8. Get narrowpeak files for histone markers.
+        #expand(str(GENOME_FEATURE_DIR / '3T3L1.{target}.{timepoint}.peaks.bed'), target=targets, timepoint=timepoints),
+
+rule concat_fastq:
+    input:
+        lambda wildcards: [str(DATA_DIR / f'{run}.fastq.gz') for run in target_time2runs[(wildcards.target, wildcards.timepoint)]]
+    output:
+        temp(RESULT_DIR / '01_concat_fastq' / '{target}.{timepoint}.fastq.gz')
+    shell:
+        'cat {input} > {output}'
+
+rule concat_fastq_control:
+    input:
+        lambda wildcards: [str(DATA_DIR / f'{run}.fastq.gz') for run in control_runs]
+    output:
+        temp(RESULT_DIR / '01_concat_fastq' / 'control.fastq.gz')
+    shell:
+        'cat {input} > {output}'
+        
+rule merge_peaks_for_all_timepoints:
+    input:
+        [RESULT_DIR / '04_callpeak' / ('{target}.%s_peaks.narrowPeak' % t) for t in timepoints]
+    output:
+        RESULT_DIR / '05_merge_peaks_for_all_timepoints' / '{target}.narrowPeak'
+    shell:
+        'cat {input} | bedtools sort -i stdin | bedtools merge -i stdin > {output}'
+
+rule generate_enhancer_bed:
+    input:
+        expand(str(RESULT_DIR / '05_merge_peaks_for_all_timepoints' / '{target}.narrowPeak'), target=enhancer_markers)
+    output:
+        result=RESULT_DIR / '06_enhancer_bed' / '3T3L1.enhancer.bed',
+        link=ANN_DIR / '3T3L1.enhancer.bed'
+    shell:
+        'cat {input} | bedtools sort -i stdin | bedtools merge -i stdin > {output.result} && ln {output.result} {output.link}'
+
+rule sort_pileup:
+    input:
+        RESULT_DIR / '04_callpeak' / '{target}.{timepoint}_treat_pileup.bdg'
+    output:
+        result=RESULT_DIR / '07_pileup' / '{target}.{timepoint}.sorted.bedGraph',
+        link=GENOME_FEATURE_DIR / '3T3L1.{target}.{timepoint}.sorted.bedGraph'
+    shell:
+        'bedtools sort -i {input} > {output.result} && '
+        'ln {output.result} {output.link}'
+
+rule narrowpeak:
+    input:
+        RESULT_DIR / '04_callpeak' / '{target}.{timepoint}_peaks.narrowPeak'
+    output:
+        result=RESULT_DIR / '08_narrowpeak' / '{target}.{timepoint}.peaks.bed',
+        link=GENOME_FEATURE_DIR / '3T3L1.{target}.{timepoint}.peaks.bed',
+    shell:
+        'cut -f1,2,3,7 {input} > {output.result} && '
+        'ln {output.result} {output.link}'
+
+rule bam2bed:
+    input:
+        RESULT_DIR / '02_bowtie' / '{target}.{timepoint}.sorted.bam'
+    output:
+        RESULT_DIR / '02_bowtie' / '{target}.{timepoint}.sorted.bed'
+    shell:
+        'bedtools bamtobed -i {input} > {output}'
+
+rule bam2bed_control:
+    input:
+        RESULT_DIR / '02_bowtie' / 'control.sorted.bam'
+    output:
+        RESULT_DIR / '02_bowtie' / 'control.sorted.bed'
+    shell:
+        'bedtools bamtobed -i {input} > {output}'

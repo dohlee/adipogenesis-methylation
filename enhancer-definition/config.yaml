@@ -1,0 +1,22 @@
+data_dir: 'data'
+annotation_dir: 'result'
+genome_feature_dir: 'result'
+
+#
+# NOTE: You must adjust the following parameters according to your system setting.
+#
+reference:
+    genome:
+        dir: '/data/project/dohoon/reference/mm10'
+        fasta: '/data/project/dohoon/reference/mm10/mm10.fa'
+        bowtie-index: '/data/project/dohoon/reference/mm10/bowtie-index'
+
+result_dir: 'result'
+        
+threads:
+    bowtie_build: 12
+    bowtie: 8
+    sambamba:
+        sort: 8
+        index: 4
+

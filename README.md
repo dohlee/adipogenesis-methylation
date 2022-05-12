@@ -12,7 +12,7 @@ This directory contains the processing pipeline for whole genome bisulfite seque
 
 **wgbs-dmr-analysis**
 
-*Related to Fig. 1k-l and Fig. 2*
+*Related to Fig. 1k-l and Fig. 2, Extended Data Fig. 1*
 
 This directory contains the DMR-calling pipeline using [`CpG_MPs`](https://github.com/Kinspact/CpG_MPs).
 
@@ -40,9 +40,15 @@ Finally, gene expressions were quantified by `RSEM` based on aligned reads.
 
 This directory contains the processing pipeline for motif enrichment analysis using `HOMER`.
 
+**enhancer-definition**
+
+*Related to Fig. 1l, Fig. 2k-o, and Extended Data Fig. 2b,c*
+
+This directory contains the processing pipeline for 3T3-L1 preadiopcyte histone ChIP-seq data (GEO accession GSE21365; Mikkelsen et al., 2010) used for the definition of the enhancer in this study.
+
 **pc-hic-data-processing**
 
-*Related to Extended Data Fig. 2c*
+*Related to Fig. 2n,o and Extended Data Fig. 2c*
 
 This directory contains the processing pipeline for 24 PC-HiC runs (SRR5297630 ~ 53) from SRA study SRP100871 (or GSE95533, Siersbæk et al. 2017). Pipeline is written in `snakemake` so that fetching SRA runs (by `prefetch`), dumping them to fastq files (by `parallel-fastq-dump`), alignment and di-tag post-processing (by `HiCUP`), and identification of significant interactions (by `CHiCAGO`) can be done automatically using single command.
 
