@@ -1,0 +1,39 @@
+configfile: 'config.yaml'
+
+dmr_types = ['hypo', 'hyper']
+region_sizes = [50, 200]
+
+reference = config['reference']['fasta']
+
+rule all:
+    input:
+        expand('result/motif/size50_transcript_promoterup1000_{dtype}', dtype=dmr_types),
+        expand('result/motif/size{rsize}_all_{dtype}', rsize=region_sizes, dtype=dmr_types),
+        expand('result/motif/size{rsize}_enhancer_{dtype}', rsize=region_sizes, dtype=dmr_types),
+
+rule homer_motif_promoter_overlapping_dmrs:
+    input:
+        '../wgbs-dmr-analysis/data/transcript_promoterup1000_overlapping_{dtype}_dmr.bed'
+    output:
+        directory('result/motif/size{rsize}_transcript_promoterup1000_{dtype}')
+    threads: 16
+    shell:
+        'findMotifsGenome.pl {input} {reference} {output} -size {wildcards.rsize} -p {threads}'
+
+rule homer_motif_all_dmrs:
+    input:
+        '../wgbs-dmr-analysis/data/ad_{dtype}.dmr.final.bed'
+    output:
+        directory('result/motif/size{rsize}_all_{dtype}')
+    threads: 16
+    shell:
+        'findMotifsGenome.pl {input} {reference} {output} -size {wildcards.rsize} -p {threads}'
+
+rule homer_motif_enhancer_dmrs:
+    input:
+        '../wgbs-dmr-analysis/data/enhancer_overlapping_{dtype}_dmr.bed'
+    output:
+        directory('result/motif/size{rsize}_enhancer_{dtype}')
+    threads: 16
+    shell:
+        'findMotifsGenome.pl {input} {reference} {output} -size {wildcards.rsize} -p {threads}'

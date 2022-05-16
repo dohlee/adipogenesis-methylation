@@ -1,0 +1,5 @@
+#
+# NOTE: You must adjust the following parameters according to your system setting.
+#
+reference:
+    fasta: 'mm10.fa'
