@@ -1,0 +1,5 @@
+#
+# NOTE: You must adjust these parameters according to your system settings.
+#
+reference:
+    fasta: '/data/project/dohoon/reference/mm10/mm10.fa'

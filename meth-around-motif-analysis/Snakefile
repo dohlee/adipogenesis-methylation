@@ -1,0 +1,135 @@
+from pathlib import Path
+RESULT_DIR = Path('result')
+
+configfile: 'config.yaml'
+wildcard_constraints:
+    tf = '[A-Z0-9]+',
+    cutoff = '[0-9]+'
+
+# Target TFs to be analyzed.
+tfs = ['CEBPA', 'PPARG', 'EBF1', 'VDR', 'PBX1', 'KLF4', 'ATF7', 'JUNB', 'FOSL2']
+
+cutoffs = [8] # Use '8' as motif score cutoff.
+
+rule all:
+    input:
+        # expand(str(RESULT_DIR / '{tf}_motifscorecutoff{cutoff}_analysis_result'), tf=tfs, cutoff=cutoffs)
+        expand(str(RESULT_DIR / 'chip' / '{tf}_motifscorecutoff{cutoff}_analysis_result'), tf=tfs, cutoff=cutoffs),
+        expand(str(RESULT_DIR / 'chip.{tf}_motif.motifscorecutoff{cutoff}.sorted.bed'), tf=tfs, cutoff=cutoffs),
+        # expand(str(RESULT_DIR / 'unionchip.{tf}_motif.motifscorecutoff{cutoff}.bed'), tf=tfs, cutoff=cutoffs),
+
+rule pfm2homermotif:
+    input: 'motifs/{tf}.pfm'
+    output: temp('motifs/{tf}_motifscorecutoff{cutoff}.homermotif')
+    shell: 'python scripts/pfm2homermotif.py -i {input} -o {output} -t {wildcards.cutoff}'
+
+#rule homer_motif:
+#    input:
+#        roi = '/data/project/JBK_AdipoMeth/result/HISTONE-CHIPSEQ/3T3L1.enhancer.homer.bed',
+#        ref = '/data/project/dohoon/reference/mm10/mm10.fa',
+#        motif = '/data/project/JBK_AdipoMeth/data/MOTIFS/{tf}_motifscorecutoff{cutoff}.homermotif'
+#    output:
+#        temp(RESULT_DIR / 'enhancer.{tf}_motif.motifscorecutoff{cutoff}.homer_result')
+#    threads: 16
+#    shell:
+#        'findMotifsGenome.pl {input.roi} {input.ref} . -find {input.motif} -size 800 -p {threads} > {output}'
+
+rule homer_motif_chip:
+    input:
+        roi = 'chip_seq_peaks/{tf}.peaks.homer.bed',
+        ref = config['reference']['fasta'],
+        motif = 'motifs/{tf}_motifscorecutoff{cutoff}.homermotif'
+    output:
+        RESULT_DIR / 'chip.{tf}_motif.motifscorecutoff{cutoff}.homer_result'
+    threads: 1
+    shell:
+        'findMotifsGenome.pl {input.roi} {input.ref} {wildcards.tf}{wildcards.cutoff} -find {input.motif} -size 800 -p {threads} > {output}'
+
+rule homer_motif_unionchip:
+    input:
+        roi = 'chip_seq_peaks/{tf}.union.peaks.homer.bed',
+        ref = config['reference']['fasta'],
+        motif = 'motifs/{tf}_motifscorecutoff{cutoff}.homermotif'
+    output:
+        temp(RESULT_DIR / 'unionchip.{tf}_motif.motifscorecutoff{cutoff}.homer_result')
+    threads: 16
+    shell:
+        'findMotifsGenome.pl {input.roi} {input.ref} . -find {input.motif} -size 800 -p {threads} > {output}'
+
+rule homermotif2bed:
+    input:
+        roi = '/data/project/JBK_AdipoMeth/result/HISTONE-CHIPSEQ/3T3L1.enhancer.homer.bed',
+        homer_result = RESULT_DIR / 'enhancer.{tf}_motif.motifscorecutoff{cutoff}.homer_result',
+        ref = config['reference']['fasta'],
+    output:
+        RESULT_DIR / 'enhancer.{tf}_motif.motifscorecutoff{cutoff}.bed'
+    shell:
+        'python scripts/homermotif2bed.py -i {input.roi} -r {input.homer_result} -g {input.ref} -o {output}'
+
+rule homermotif2bed_chip:
+    input:
+        roi = '/data/project/JBK_AdipoMeth/data/CHIP-SEQ-PEAKS/{tf}.peaks.homer.bed',
+        homer_result = RESULT_DIR / 'chip.{tf}_motif.motifscorecutoff{cutoff}.homer_result',
+        ref = config['reference']['fasta'],
+    output:
+        RESULT_DIR / 'chip.{tf}_motif.motifscorecutoff{cutoff}.bed'
+    shell:
+        'python scripts/homermotif2bed.py -i {input.roi} -r {input.homer_result} -g {input.ref} -o {output}'
+
+rule homermotif2bed_chip_sort:
+    input:
+        RESULT_DIR / 'chip.{tf}_motif.motifscorecutoff{cutoff}.bed'
+    output:
+        RESULT_DIR / 'chip.{tf}_motif.motifscorecutoff{cutoff}.sorted.bed'
+    shell:
+        'bedtools sort -i {input} > {output}'
+
+rule homermotif2bed_unionchip:
+    input:
+        roi = 'chip_seq_peaks/{tf}.union.peaks.homer.bed',
+        homer_result = RESULT_DIR / 'unionchip.{tf}_motif.motifscorecutoff{cutoff}.homer_result',
+        ref = config['reference']['fasta'],
+    output:
+        RESULT_DIR / 'unionchip.{tf}_motif.motifscorecutoff{cutoff}.bed'
+    shell:
+        'python scripts/homermotif2bed.py -i {input.roi} -r {input.homer_result} -g {input.ref} -o {output}'
+
+rule dist2motif_methdiff_analysis:
+    input:
+        motif = RESULT_DIR / 'enhancer.{tf}_motif.motifscorecutoff{cutoff}.bed',
+        # s1 = '../wgbs-data-processing/result/G_DNA-3T3L1-pre.bismark.deduplicated.sorted_CpG.meth.common.bedGraph',
+        # s2 = '../wgbs-data-processing/result/G_DNA-3T3L1-AD.bismark.deduplicated.sorted_CpG.meth.common.bedGraph',
+        s1 = '../wgbs-data-processing/result/G_DNA-3T3L1-pre.bismark.deduplicated.sorted_CpG.meth.bedGraph',
+        s2 = '../wgbs-data-processing/result/G_DNA-3T3L1-AD.bismark.deduplicated.sorted_CpG.meth.bedGraph',
+        chip = 'chip_seq_peaks/{tf}.peaks.bed',
+    output:
+        dir = directory(RESULT_DIR / '{tf}_motifscorecutoff{cutoff}_analysis_result'),
+        # scatter = RESULT_DIR / '{tf}_analysis_result' / 'scatter.png',
+    shell:
+        'python scripts/dist2motif_methdiff_analysis.py -m {input.motif} -1 {input.s1} -2 {input.s2} -o {output.dir} -c {input.chip} -v'
+
+rule dist2motif_methdiff_analysis_chip:
+    input:
+        motif = RESULT_DIR / 'chip.{tf}_motif.motifscorecutoff{cutoff}.bed',
+        # s1 = '../wgbs-data-processing/result/G_DNA-3T3L1-pre.bismark.deduplicated.sorted_CpG.meth.common.bedGraph',
+        # s2 = '../wgbs-data-processing/result/G_DNA-3T3L1-AD.bismark.deduplicated.sorted_CpG.meth.common.bedGraph',
+        s1 = '../wgbs-data-processing/result/G_DNA-3T3L1-pre.bismark.deduplicated.sorted_CpG.meth.bedGraph',
+        s2 = '../wgbs-data-processing/result/G_DNA-3T3L1-AD.bismark.deduplicated.sorted_CpG.meth.bedGraph',
+    output:
+        dir = directory(RESULT_DIR / 'chip' / '{tf}_motifscorecutoff{cutoff}_analysis_result'),
+        # scatter = RESULT_DIR / 'chip'/ '{tf}_motifscorecutoff{cutoff}_analysis_result' / 's1.tsv',
+    shell:
+        'python scripts/dist2motif_methdiff_analysis.py -m {input.motif} -1 {input.s1} -2 {input.s2} -o {output.dir} -v'
+
+rule dist2motif_methdiff_analysis_unionchip:
+    input:
+        motif = RESULT_DIR / 'unionchip.{tf}_motif.motifscorecutoff{cutoff}.bed',
+        # s1 = '../wgbs-data-processing/result/G_DNA-3T3L1-pre.bismark.deduplicated.sorted_CpG.meth.common.bedGraph',
+        # s2 = '../wgbs-data-processing/result/G_DNA-3T3L1-AD.bismark.deduplicated.sorted_CpG.meth.common.bedGraph',
+        s1 = '../wgbs-data-processing/result/G_DNA-3T3L1-pre.bismark.deduplicated.sorted_CpG.meth.bedGraph',
+        s2 = '../wgbs-data-processing/result/G_DNA-3T3L1-AD.bismark.deduplicated.sorted_CpG.meth.bedGraph',
+    output:
+        dir = directory(RESULT_DIR / 'unionchip' / '{tf}_motifscorecutoff{cutoff}_analysis_result'),
+        # scatter = RESULT_DIR / 'chip'/ '{tf}_motifscorecutoff{cutoff}_analysis_result' / 's1.tsv',
+    shell:
+        'python scripts/dist2motif_methdiff_analysis.py -m {input.motif} -1 {input.s1} -2 {input.s2} -o {output.dir} -v'

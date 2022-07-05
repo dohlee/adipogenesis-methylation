@@ -1,6 +1,6 @@
 # Targeted erasing of DNA methylation drives adipogenic reprogramming
 
-This repository provides analysis codes and bioinformatic pipelines for article entitled "Targeted erasing of DNA methylation drives adipogenic reprogramming" (Park et al., *Nature Metabolism*, *in press*).
+This repository provides analysis codes and bioinformatic pipelines for article entitled "Targeted erasing of DNA methylation drives adipogenic reprogramming" (Park et al., *Nature Metabolism*, 2022).
 
 This repository is organized into several directories:
 
