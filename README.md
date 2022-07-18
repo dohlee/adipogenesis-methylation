@@ -1,6 +1,6 @@
-# Targeted erasing of DNA methylation drives adipogenic reprogramming
+# Targeted erasure of DNA methylation by TET3 drives adipogenic reprogramming and differentiation
 
-This repository provides analysis codes and bioinformatic pipelines for article entitled "Targeted erasing of DNA methylation drives adipogenic reprogramming" (Park et al., *Nature Metabolism*, 2022).
+This repository provides analysis codes and bioinformatic pipelines for article entitled "Targeted erasure of DNA methylation by TET3 drives adipogenic reprogramming and differentiation" (Park et al., *Nature Metabolism*, 2022).
 
 This repository is organized into several directories:
 
@@ -56,3 +56,15 @@ Alignment and di-tag post-processing are done by `HiCUP` and identification of s
 
 ## Citation
 
+Park, J., Lee, D. H., Ham, S., Oh, J., Noh, J. R., Lee, Y. K., ... & Kim, J. B. (2022). Targeted erasure of DNA methylation by TET3 drives adipogenic reprogramming and differentiation. Nature Metabolism, 1-14.
+
+```bibtex
+@article{park2022targeted,
+  title={Targeted erasure of DNA methylation by TET3 drives adipogenic reprogramming and differentiation},
+  author={Park, Jeu and Lee, Do Hoon and Ham, Seokjin and Oh, Jiyoung and Noh, Jung-Ran and Lee, Yun Kyung and Park, Yoon Jeong and Lee, Gung and Han, Sang Mun and Han, Ji Seul and others},
+  journal={Nature Metabolism},
+  pages={1--14},
+  year={2022},
+  publisher={Nature Publishing Group}
+}
+```
